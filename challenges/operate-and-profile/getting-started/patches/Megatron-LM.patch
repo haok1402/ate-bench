@@ -1,0 +1,254 @@
+diff --git a/.gitignore b/.gitignore
+index a9ce4aa..20dc936 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -19,4 +19,8 @@ runs/
+ 
+ # Sphinx documentation
+ docs/_build
+-docs/apidocs
+\ No newline at end of file
++docs/apidocs
++
++# pith-train-eval
++.venv
++uv.lock
+diff --git a/challenges/train.sh b/challenges/train.sh
+new file mode 100755
+index 0000000..7716198
+--- /dev/null
++++ b/challenges/train.sh
+@@ -0,0 +1,121 @@
++#!/bin/bash
++# DeepSeek-V2-Lite 5-step smoke training with Megatron-LM.
++
++set -euo pipefail
++source Megatron-LM/.venv/bin/activate
++
++# Hide host libcudart.so.12 so cuDNN loads only cu13 (avoids "Multiple libcudart").
++CUDART_SHIM=/tmp/cudart12-shim
++mkdir -p $CUDART_SHIM && : > $CUDART_SHIM/libcudart.so.12
++export LD_LIBRARY_PATH=$CUDART_SHIM${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}
++
++OUTPUT=artifacts/train-$(date +%Y%m%d-%H%M%S).log
++mkdir -p $(dirname $OUTPUT) ; exec > >(tee -a $OUTPUT) 2>&1
++trap 'echo "exit-time: $(date +%Y%m%d-%H%M%S)"' EXIT
++
++declare -A MODEL_CONFIG
++MODEL_CONFIG[tokenizer-type]=HuggingFaceTokenizer
++MODEL_CONFIG[tokenizer-model]=checkpoints/deepseek-v2-lite/hf-import
++MODEL_CONFIG[vocab-size]=102400
++MODEL_CONFIG[num-layers]=27
++MODEL_CONFIG[hidden-size]=2048
++MODEL_CONFIG[ffn-hidden-size]=10944
++MODEL_CONFIG[num-attention-heads]=16
++MODEL_CONFIG[position-embedding-type]=rope
++MODEL_CONFIG[rotary-base]=10000
++MODEL_CONFIG[max-position-embeddings]=163840
++MODEL_CONFIG[multi-latent-attention]=true
++MODEL_CONFIG[qk-head-dim]=128
++MODEL_CONFIG[qk-pos-emb-head-dim]=64
++MODEL_CONFIG[kv-lora-rank]=512
++MODEL_CONFIG[v-head-dim]=128
++MODEL_CONFIG[qk-layernorm]=true
++MODEL_CONFIG[normalization]=RMSNorm
++MODEL_CONFIG[norm-epsilon]=1e-6
++MODEL_CONFIG[attention-dropout]=0.0
++MODEL_CONFIG[hidden-dropout]=0.0
++MODEL_CONFIG[disable-bias-linear]=true
++MODEL_CONFIG[swiglu]=true
++MODEL_CONFIG[untie-embeddings-and-output-weights]=true
++MODEL_CONFIG[enable-experimental]=true
++MODEL_CONFIG[num-experts]=64
++MODEL_CONFIG[moe-layer-freq]="([0]+[1]*26)"
++MODEL_CONFIG[moe-ffn-hidden-size]=1408
++MODEL_CONFIG[moe-shared-expert-intermediate-size]=$((1408 * 2))
++MODEL_CONFIG[moe-router-dtype]=fp32
++MODEL_CONFIG[moe-router-score-function]=softmax
++MODEL_CONFIG[moe-router-topk]=6
++MODEL_CONFIG[moe-router-load-balancing-type]=seq_aux_loss
++MODEL_CONFIG[moe-aux-loss-coeff]=1e-2
++
++declare -A INFRA_CONFIG
++INFRA_CONFIG[bf16]=true
++INFRA_CONFIG[transformer-impl]=transformer_engine
++INFRA_CONFIG[expert-model-parallel-size]=2
++INFRA_CONFIG[pipeline-model-parallel-size]=4
++INFRA_CONFIG[pipeline-model-parallel-layout]="Et*4|t*4|t*4|t*3|t*3|t*3|t*3|t*3L"
++INFRA_CONFIG[moe-grouped-gemm]=true
++INFRA_CONFIG[moe-router-fusion]=true
++INFRA_CONFIG[moe-permute-fusion]=true
++INFRA_CONFIG[moe-shared-expert-overlap]=true
++INFRA_CONFIG[moe-token-dispatcher-type]=alltoall
++INFRA_CONFIG[use-distributed-optimizer]=true
++INFRA_CONFIG[overlap-param-gather]=true
++INFRA_CONFIG[overlap-grad-reduce]=true
++INFRA_CONFIG[cross-entropy-loss-fusion]=true
++INFRA_CONFIG[cross-entropy-fusion-impl]=te
++INFRA_CONFIG[no-create-attention-mask-in-dataloader]=true
++INFRA_CONFIG[no-check-for-nan-in-loss-and-grad]=true
++INFRA_CONFIG[manual-gc]=true
++INFRA_CONFIG[manual-gc-interval]=10
++INFRA_CONFIG[cuda-graph-impl]=transformer_engine
++INFRA_CONFIG[cuda-graph-scope]="attn moe_router moe_preprocess"
++INFRA_CONFIG[te-rng-tracker]=true
++
++declare -A TRAIN_CONFIG
++TRAIN_CONFIG[load]=checkpoints/deepseek-v2-lite/torch-dcp
++TRAIN_CONFIG[no-load-optim]=true
++TRAIN_CONFIG[no-load-rng]=true
++TRAIN_CONFIG[train-iters]=5
++TRAIN_CONFIG[micro-batch-size]=1
++TRAIN_CONFIG[global-batch-size]=1024
++TRAIN_CONFIG[seq-length]=2048
++TRAIN_CONFIG[lr]=1e-6
++TRAIN_CONFIG[lr-decay-style]=constant
++TRAIN_CONFIG[init-method-std]=0.02
++TRAIN_CONFIG[optimizer]=adam
++TRAIN_CONFIG[eval-iters]=0
++TRAIN_CONFIG[eval-interval]=5
++TRAIN_CONFIG[log-interval]=1
++TRAIN_CONFIG[log-throughput]=true
++
++DATA_ARGS_PATH=datasets/data_args.txt
++: > $DATA_ARGS_PATH
++find datasets/dclm-baseline/toktxt/deepseek-v2/ -type f -name "*.idx" | sort | while read -r FILE; do
++    printf "1.0 %s " ${FILE%.idx} >> $DATA_ARGS_PATH
++done
++TRAIN_CONFIG[data-args-path]=$DATA_ARGS_PATH
++TRAIN_CONFIG[split]=1000,0,0
++
++MAIN_ARGS=()
++for key in ${!MODEL_CONFIG[@]}; do
++    val=${MODEL_CONFIG[$key]}
++    case $val in true) MAIN_ARGS+=(--$key) ;; false) ;; *) MAIN_ARGS+=(--$key $val) ;; esac
++done
++for key in ${!TRAIN_CONFIG[@]}; do
++    val=${TRAIN_CONFIG[$key]}
++    case $val in true) MAIN_ARGS+=(--$key) ;; false) ;; *) MAIN_ARGS+=(--$key $val) ;; esac
++done
++for key in ${!INFRA_CONFIG[@]}; do
++    val=${INFRA_CONFIG[$key]}
++    case $val in true) MAIN_ARGS+=(--$key) ;; false) ;; *) MAIN_ARGS+=(--$key $val) ;; esac
++done
++
++LAUNCH_ARGS=()
++LAUNCH_ARGS+=(--nnodes=${SLURM_NNODES:-1} --node-rank=${SLURM_NODEID:-0} --nproc-per-node=gpu)
++LAUNCH_ARGS+=(--rdzv-backend=c10d --rdzv-endpoint=${SLURM_LAUNCH_NODE_IPADDR:-localhost}:15213)
++
++export OMP_NUM_THREADS=8; export PYTHONUNBUFFERED=1; export PYTHONPATH=$PWD/Megatron-LM:$PWD/Megatron-Bridge/src
++export CUDA_DEVICE_MAX_CONNECTIONS=1
++export NVTE_ALLOW_NONDETERMINISTIC_ALGO=1; export NVTE_FUSED_ATTN=1; export NVTE_USE_CUTLASS_GROUPED_GEMM=1
++torchrun ${LAUNCH_ARGS[@]} Megatron-LM/pretrain_gpt.py ${MAIN_ARGS[@]}
+diff --git a/megatron/core/datasets/gpt_dataset.py b/megatron/core/datasets/gpt_dataset.py
+index 42146d1..13c164f 100644
+--- a/megatron/core/datasets/gpt_dataset.py
++++ b/megatron/core/datasets/gpt_dataset.py
+@@ -439,10 +439,7 @@ class GPTDataset(MegatronDataset):
+         else:
+             cache_hit = False
+ 
+-        if not path_to_cache or (
+-            not cache_hit
+-            and (not torch.distributed.is_initialized() or torch.distributed.get_rank() == 0)
+-        ):
++        if not path_to_cache or not cache_hit:
+             log_single_rank(
+                 logger,
+                 logging.INFO,
+@@ -541,7 +538,7 @@ class GPTDataset(MegatronDataset):
+                     sample_index.shape[0] - 1, sample_index.shape[0] - 1, numpy_random_state
+                 )
+ 
+-            if path_to_cache:
++            if path_to_cache and int(os.environ.get("LOCAL_RANK", 0)) == 0:
+                 os.makedirs(path_to_cache, exist_ok=True)
+                 # Write the description
+                 with open(path_to_description, "wt") as writer:
+diff --git a/megatron/training/checkpointing.py b/megatron/training/checkpointing.py
+index a3d307f..c4f3450 100644
+--- a/megatron/training/checkpointing.py
++++ b/megatron/training/checkpointing.py
+@@ -701,8 +701,7 @@ def save_checkpoint(iteration, model, optimizer, opt_param_scheduler, num_floati
+                 torch.distributed.barrier()
+ 
+     # And update the latest iteration
+-    if not torch.distributed.is_initialized() \
+-            or torch.distributed.get_rank() == 0:
++    if not torch.distributed.is_initialized() or is_last_rank():
+         tracker_filename = get_checkpoint_tracker_filename(save_dir)
+ 
+         if ckpt_type == CheckpointType.LOCAL:
+diff --git a/megatron/training/training.py b/megatron/training/training.py
+index d61b935..fb7a06f 100644
+--- a/megatron/training/training.py
++++ b/megatron/training/training.py
+@@ -2058,6 +2058,10 @@ def training_log(
+             if wandb_writer:
+                 wandb_writer.log({'iter-energy/gpu': energy}, iteration)
+                 wandb_writer.log({'power/gpu': power}, iteration)
++
++        if wandb_writer:
++            wandb_writer.log({}, iteration, commit=True)
++
+         # Decoupled_learning_rate should be not None only on first and last pipeline stage.
+         log_string += f' learning rate: {learning_rate:.6E} |'
+         log_string += f' global batch size: {batch_size:5d} |'
+diff --git a/tools/preprocess_data.py b/tools/preprocess_data.py
+index 03e5329..c0970c0 100644
+--- a/tools/preprocess_data.py
++++ b/tools/preprocess_data.py
+@@ -11,6 +11,7 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__),
+ import time
+ import gzip
+ import glob
++import zstandard
+ import torch
+ import numpy as np
+ import multiprocessing
+@@ -29,6 +30,14 @@ from megatron.training.arguments import _add_tokenizer_args
+ from megatron.core.datasets import indexed_dataset
+ 
+ 
++def open_file(filename):
++    if filename.endswith(".gz"):
++        return gzip.open(filename, 'rt')
++    if filename.endswith(".zst"):
++        return zstandard.open(filename, 'rt', encoding='utf-8')
++    return open(filename, 'r', encoding='utf-8')
++
++
+ # https://stackoverflow.com/questions/33139531/preserve-empty-lines-with-nltks-punkt-tokenizer
+ class CustomLanguageVars(PunktLanguageVars):
+ 
+@@ -131,7 +140,7 @@ class Partition(object):
+     def split_sentences(self, file_name):
+         input_file_name, output_file_name = file_name
+         print("Opening", input_file_name)
+-        fin = open(input_file_name, 'r', encoding='utf-8')
++        fin = open_file(input_file_name)
+         fout = open(output_file_name, 'w')
+ 
+         encoder = Encoder(self.args)
+@@ -152,7 +161,7 @@ class Partition(object):
+     def process_json_file(self, file_name):
+         input_file_name, output_prefix = file_name
+         print("Opening", input_file_name)
+-        fin = open(input_file_name, 'r', encoding='utf-8')
++        fin = open_file(input_file_name)
+ 
+         startup_start = time.time()
+         encoder = Encoder(self.args)
+@@ -316,11 +325,7 @@ def main():
+             index = 0
+             if args.keep_sequential_samples: line_count = 0
+             for in_file_name in in_file_names:
+-                # support for gzip files
+-                if in_file_name.endswith(".gz"):
+-                    fin = gzip.open(in_file_name, 'rt')
+-                else:
+-                    fin = open(in_file_name, 'r', encoding='utf-8')
++                fin = open_file(in_file_name)
+ 
+                 for line in fin:
+                     partitioned_input_files[index].write(line)

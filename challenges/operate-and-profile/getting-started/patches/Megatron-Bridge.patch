@@ -1,0 +1,12 @@
+diff --git a/src/megatron/bridge/models/deepseek/deepseek_v2_bridge.py b/src/megatron/bridge/models/deepseek/deepseek_v2_bridge.py
+index 1b75b97..38ad058 100644
+--- a/src/megatron/bridge/models/deepseek/deepseek_v2_bridge.py
++++ b/src/megatron/bridge/models/deepseek/deepseek_v2_bridge.py
+@@ -82,6 +82,7 @@ class DeepSeekV2Bridge(MegatronModelBridge):
+             hf_config.num_hidden_layers - hf_config.first_k_dense_replace
+         )
+         provider.moe_shared_expert_intermediate_size = hf_config.moe_intermediate_size * hf_config.n_shared_experts
++        provider.q_lora_rank = hf_config.q_lora_rank
+ 
+         return provider
+ 

@@ -1,0 +1,95 @@
+diff --git a/.gitignore b/.gitignore
+index b84b6d6..7457204 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -49,3 +49,7 @@ CLAUDE.local.md
+ /debug_*.py
+ CLAUDE_CONTEXT/
+ /.claude/settings.local.json
++
++# pith-train-eval
++.venv
++uv.lock
+diff --git a/pyproject.toml b/pyproject.toml
+index cd5f187..2df20a0 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -3,13 +3,16 @@
+ name = "torchtitan"
+ description = "A PyTorch native platform for training generative AI models"
+ readme = "README.md"
+-requires-python = ">=3.10"
++requires-python = ">=3.12"
+ license = {file = "LICENSE"}
+ authors = [
+     { name = "PyTorch Team", email = "packages@pytorch.org" },
+ ]
+ keywords = ["pytorch", "training", "llm"]
+ dependencies = [
++    # PyTorch
++    "torch==2.12.0",
++
+     # Stateful Dataloader
+     "torchdata>=0.8.0",
+ 
+@@ -17,6 +20,7 @@ dependencies = [
+     "datasets>=3.6.0",
+     "tokenizers>=0.15.0",
+     "safetensors",
++    "transformers",
+ 
+     # Miscellaneous
+     "fsspec",
+@@ -25,6 +29,7 @@ dependencies = [
+     "wandb",
+     "einops",
+     "pillow",
++    "zstandard",
+ ]
+ dynamic = ["version"]
+ 
+@@ -42,6 +47,14 @@ dev = [
+     "pyrefly==0.45.1",
+ ]
+ 
++[tool.uv.sources]
++torch = { index = "torch-cu130" }
++
++[[tool.uv.index]]
++name = "torch-cu130"
++url = "https://download.pytorch.org/whl/cu130"
++explicit = true
++
+ [tool.setuptools.dynamic]
+ version = {file = "assets/version.txt"}
+ 
+diff --git a/torchtitan/hf_datasets/text_datasets.py b/torchtitan/hf_datasets/text_datasets.py
+index aec4f15..e3b4271 100644
+--- a/torchtitan/hf_datasets/text_datasets.py
++++ b/torchtitan/hf_datasets/text_datasets.py
+@@ -26,6 +26,13 @@ def _load_c4_dataset(dataset_path: str, split: str):
+     return load_dataset(dataset_path, name="en", split=split, streaming=True)
+ 
+ 
++def _load_dclm_dataset(dataset_path: str):
++    """
++    Load DCLM from compressed JSONL files on local disk.
++    """
++    return load_dataset("json", data_files=f"{dataset_path}/**/*.jsonl.zst", split="train", streaming=True)
++
++
+ def _process_c4_text(sample: dict[str, Any]) -> str:
+     """Process C4 dataset sample text."""
+     return sample["text"]
+@@ -48,6 +55,11 @@ DATASETS = {
+         loader=partial(_load_c4_dataset, split="validation"),
+         sample_processor=_process_c4_text,
+     ),
++    "dclm": DatasetConfig(
++        path="datasets/dclm-baseline",
++        loader=_load_dclm_dataset,
++        sample_processor=_process_c4_text,
++    ),
+ }
+ 
+ 

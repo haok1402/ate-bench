@@ -1,0 +1,290 @@
+diff --git a/.gitignore b/.gitignore
+index b84b6d6..7457204 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -49,3 +49,7 @@ CLAUDE.local.md
+ /debug_*.py
+ CLAUDE_CONTEXT/
+ /.claude/settings.local.json
++
++# pith-train-eval
++.venv
++uv.lock
+diff --git a/challenges/train.sh b/challenges/train.sh
+new file mode 100644
+index 0000000..6c1afa2
+--- /dev/null
++++ b/challenges/train.sh
+@@ -0,0 +1,17 @@
++#!/bin/bash
++# Launch DeepSeek-V2-Lite from-scratch training with torchtitan.
++
++set -euo pipefail
++source torchtitan/.venv/bin/activate
++
++OUTPUT=artifacts/train-$(date +%Y%m%d-%H%M%S).log
++mkdir -p $(dirname $OUTPUT) ; exec > >(tee -a $OUTPUT) 2>&1
++trap 'echo "exit-time: $(date +%Y%m%d-%H%M%S)"' EXIT
++
++LAUNCH_ARGS=()
++LAUNCH_ARGS+=(--nnodes=${SLURM_NNODES:-1} --node-rank=${SLURM_NODEID:-0} --nproc-per-node=gpu)
++LAUNCH_ARGS+=(--rdzv-backend=c10d --rdzv-endpoint=${SLURM_LAUNCH_NODE_IPADDR:-localhost}:15213)
++LAUNCH_ARGS+=(--local-ranks-filter=6 --role=rank --tee=3)
++
++export OMP_NUM_THREADS=8; export PYTHONUNBUFFERED=1; export PYTHONPATH=$PWD/torchtitan
++torchrun ${LAUNCH_ARGS[@]} -m torchtitan.train --module deepseek_v2 --config deepseek_v2_lite
+diff --git a/challenges/verify.sh b/challenges/verify.sh
+new file mode 100644
+index 0000000..67fc9de
+--- /dev/null
++++ b/challenges/verify.sh
+@@ -0,0 +1,17 @@
++#!/bin/bash
++# Quick smoke test for the training of DeepSeek-V2-Lite.
++
++set -euo pipefail
++source torchtitan/.venv/bin/activate
++
++OUTPUT=artifacts/verify-$(date +%Y%m%d-%H%M%S).log
++mkdir -p $(dirname $OUTPUT) ; exec > >(tee -a $OUTPUT) 2>&1
++trap 'echo "exit-time: $(date +%Y%m%d-%H%M%S)"' EXIT
++
++LAUNCH_ARGS=()
++LAUNCH_ARGS+=(--nnodes=${SLURM_NNODES:-1} --node-rank=${SLURM_NODEID:-0} --nproc-per-node=gpu)
++LAUNCH_ARGS+=(--rdzv-backend=c10d --rdzv-endpoint=${SLURM_LAUNCH_NODE_IPADDR:-localhost}:15213)
++LAUNCH_ARGS+=(--local-ranks-filter=6 --role=rank --tee=3)
++
++export OMP_NUM_THREADS=8; export PYTHONUNBUFFERED=1; export PYTHONPATH=$PWD/torchtitan
++torchrun ${LAUNCH_ARGS[@]} -m torchtitan.train --module deepseek_v2 --config deepseek_v2_lite --training.steps 4
+diff --git a/pyproject.toml b/pyproject.toml
+index cd5f187..2df20a0 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -3,13 +3,16 @@
+ name = "torchtitan"
+ description = "A PyTorch native platform for training generative AI models"
+ readme = "README.md"
+-requires-python = ">=3.10"
++requires-python = ">=3.12"
+ license = {file = "LICENSE"}
+ authors = [
+     { name = "PyTorch Team", email = "packages@pytorch.org" },
+ ]
+ keywords = ["pytorch", "training", "llm"]
+ dependencies = [
++    # PyTorch
++    "torch==2.12.0",
++
+     # Stateful Dataloader
+     "torchdata>=0.8.0",
+ 
+@@ -17,6 +20,7 @@ dependencies = [
+     "datasets>=3.6.0",
+     "tokenizers>=0.15.0",
+     "safetensors",
++    "transformers",
+ 
+     # Miscellaneous
+     "fsspec",
+@@ -25,6 +29,7 @@ dependencies = [
+     "wandb",
+     "einops",
+     "pillow",
++    "zstandard",
+ ]
+ dynamic = ["version"]
+ 
+@@ -42,6 +47,14 @@ dev = [
+     "pyrefly==0.45.1",
+ ]
+ 
++[tool.uv.sources]
++torch = { index = "torch-cu130" }
++
++[[tool.uv.index]]
++name = "torch-cu130"
++url = "https://download.pytorch.org/whl/cu130"
++explicit = true
++
+ [tool.setuptools.dynamic]
+ version = {file = "assets/version.txt"}
+ 
+diff --git a/torchtitan/components/metrics.py b/torchtitan/components/metrics.py
+index 2199b08..1a10975 100644
+--- a/torchtitan/components/metrics.py
++++ b/torchtitan/components/metrics.py
+@@ -531,7 +531,8 @@ class MetricsProcessor(Configurable):
+             f"({device_mem_stats.max_reserved_pct:.2f}%)  "
+             f"{color.blue}tps: {round(tps):,}  "
+             f"{color.cyan}tflops: {tflops:,.2f}  "
+-            f"{color.magenta}mfu: {mfu_str}{color.reset}"
++            f"{color.magenta}mfu: {mfu_str}  "
++            f"{color.yellow}step_time: {extra_metrics['step_time']:.4f}s{color.reset}"
+         )
+ 
+         self.ntokens_since_last_log = 0
+diff --git a/torchtitan/hf_datasets/text_datasets.py b/torchtitan/hf_datasets/text_datasets.py
+index aec4f15..e3b4271 100644
+--- a/torchtitan/hf_datasets/text_datasets.py
++++ b/torchtitan/hf_datasets/text_datasets.py
+@@ -26,6 +26,13 @@ def _load_c4_dataset(dataset_path: str, split: str):
+     return load_dataset(dataset_path, name="en", split=split, streaming=True)
+ 
+ 
++def _load_dclm_dataset(dataset_path: str):
++    """
++    Load DCLM from compressed JSONL files on local disk.
++    """
++    return load_dataset("json", data_files=f"{dataset_path}/**/*.jsonl.zst", split="train", streaming=True)
++
++
+ def _process_c4_text(sample: dict[str, Any]) -> str:
+     """Process C4 dataset sample text."""
+     return sample["text"]
+@@ -48,6 +55,11 @@ DATASETS = {
+         loader=partial(_load_c4_dataset, split="validation"),
+         sample_processor=_process_c4_text,
+     ),
++    "dclm": DatasetConfig(
++        path="datasets/dclm-baseline",
++        loader=_load_dclm_dataset,
++        sample_processor=_process_c4_text,
++    ),
+ }
+ 
+ 
+diff --git a/torchtitan/models/__init__.py b/torchtitan/models/__init__.py
+index d865194..3305c05 100644
+--- a/torchtitan/models/__init__.py
++++ b/torchtitan/models/__init__.py
+@@ -5,5 +5,5 @@
+ # LICENSE file in the root directory of this source tree.
+ 
+ _supported_models = frozenset(
+-    ["deepseek_v3", "flux", "gpt_oss", "llama3", "llama4", "qwen3"]
++    ["deepseek_v2", "deepseek_v3", "flux", "gpt_oss", "llama3", "llama4", "qwen3"]
+ )
+diff --git a/torchtitan/models/deepseek_v2/__init__.py b/torchtitan/models/deepseek_v2/__init__.py
+new file mode 100644
+index 0000000..f1bb62a
+--- /dev/null
++++ b/torchtitan/models/deepseek_v2/__init__.py
+@@ -0,0 +1,37 @@
++from torchtitan.components.loss import build_cross_entropy_loss
++from torchtitan.components.optimizer import register_moe_load_balancing_hook
++from torchtitan.distributed.pipeline_parallel import pipeline_llm
++from torchtitan.protocols.model_spec import ModelSpec
++
++from ..deepseek_v3 import (
++    deepseekv3_configs,
++    DeepSeekV3Model,
++    DeepSeekV3StateDictAdapter,
++    parallelize_deepseekv3,
++)
++
++__all__ = [
++    "parallelize_deepseekv3",
++    "DeepSeekV3Model",
++    "deepseekv2_configs",
++    "model_registry",
++]
++
++
++deepseekv2_configs = {"V2-Lite": deepseekv3_configs["16B"]}
++
++
++def model_registry(flavor: str) -> ModelSpec:
++    """
++    Register the DeepSeek-V2 model.
++    """
++    return ModelSpec(
++        name="deepseek_v2",
++        flavor=flavor,
++        model=deepseekv2_configs[flavor],
++        parallelize_fn=parallelize_deepseekv3,
++        pipelining_fn=pipeline_llm,
++        build_loss_fn=build_cross_entropy_loss,
++        post_optimizer_build_fn=register_moe_load_balancing_hook,
++        state_dict_adapter=DeepSeekV3StateDictAdapter,
++    )
+diff --git a/torchtitan/models/deepseek_v2/config_registry.py b/torchtitan/models/deepseek_v2/config_registry.py
+new file mode 100644
+index 0000000..5dd9344
+--- /dev/null
++++ b/torchtitan/models/deepseek_v2/config_registry.py
+@@ -0,0 +1,41 @@
++from torchtitan.components.lr_scheduler import LRSchedulersContainer
++from torchtitan.components.metrics import MetricsProcessor
++from torchtitan.components.optimizer import OptimizersContainer
++from torchtitan.config import (
++    ActivationCheckpointConfig,
++    CompileConfig,
++    ParallelismConfig,
++    TrainingConfig,
++)
++from torchtitan.hf_datasets.text_datasets import HuggingFaceTextDataLoader
++from torchtitan.trainer import Trainer
++
++from . import model_registry
++
++
++def deepseek_v2_lite() -> Trainer.Config:
++    """
++    DeepSeek-V2-Lite (~16B total / 2.4B active).
++    """
++    return Trainer.Config(
++        hf_assets_path="checkpoints/deepseek-v2-lite",
++        metrics=MetricsProcessor.Config(log_freq=1, disable_color_printing=True),
++        model_spec=model_registry("V2-Lite"),
++        dataloader=HuggingFaceTextDataLoader.Config(dataset="dclm"),
++        optimizer=OptimizersContainer.Config(lr=1e-4),
++        lr_scheduler=LRSchedulersContainer.Config(warmup_steps=0, min_lr_factor=1.0),
++        training=TrainingConfig(
++            local_batch_size=128,
++            global_batch_size=1024,
++            seq_len=2048,
++            steps=64,
++        ),
++        parallelism=ParallelismConfig(
++            pipeline_parallel_degree=4,
++            pipeline_parallel_schedule="Interleaved1F1B",
++            data_parallel_shard_degree=-1,
++            expert_parallel_degree=2,
++        ),
++        activation_checkpoint=ActivationCheckpointConfig(mode="none"),
++        compile=CompileConfig(enable=True),
++    )
+diff --git a/torchtitan/trainer.py b/torchtitan/trainer.py
+index 6137578..ce9f83e 100644
+--- a/torchtitan/trainer.py
++++ b/torchtitan/trainer.py
+@@ -700,6 +700,10 @@ class Trainer(torch.distributed.checkpoint.stateful.Stateful, Configurable):
+     def train_step(
+         self, data_iterator: Iterator[tuple[dict[str, torch.Tensor], torch.Tensor]]
+     ):
++        torch.cuda.synchronize()
++        torch.distributed.barrier()
++        step_start = time.perf_counter()
++
+         self.optimizers.zero_grad()
+         # Save the current step learning rate for logging
+         lr = self.lr_schedulers.schedulers[0].get_last_lr()[0]
+@@ -753,6 +757,10 @@ class Trainer(torch.distributed.checkpoint.stateful.Stateful, Configurable):
+         self.optimizers.step()
+         self.lr_schedulers.step()
+ 
++        torch.cuda.synchronize()
++        torch.distributed.barrier()
++        step_time = time.perf_counter() - step_start
++
+         # Reduce the data collected over gradient accumulation steps.
+         loss = torch.sum(torch.stack(accumulated_losses))
+ 
+@@ -791,6 +799,7 @@ class Trainer(torch.distributed.checkpoint.stateful.Stateful, Configurable):
+         extra_metrics = {
+             "n_tokens_seen": global_ntokens_seen,
+             "lr": lr,
++            "step_time": step_time,
+         }
+         self.metrics_processor.log(
+             self.step,

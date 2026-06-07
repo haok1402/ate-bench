@@ -1,0 +1,127 @@
+diff --git a/.gitignore b/.gitignore
+index a9ce4aa..20dc936 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -19,4 +19,8 @@ runs/
+ 
+ # Sphinx documentation
+ docs/_build
+-docs/apidocs
+\ No newline at end of file
++docs/apidocs
++
++# pith-train-eval
++.venv
++uv.lock
+diff --git a/megatron/core/datasets/gpt_dataset.py b/megatron/core/datasets/gpt_dataset.py
+index 42146d1..13c164f 100644
+--- a/megatron/core/datasets/gpt_dataset.py
++++ b/megatron/core/datasets/gpt_dataset.py
+@@ -439,10 +439,7 @@ class GPTDataset(MegatronDataset):
+         else:
+             cache_hit = False
+ 
+-        if not path_to_cache or (
+-            not cache_hit
+-            and (not torch.distributed.is_initialized() or torch.distributed.get_rank() == 0)
+-        ):
++        if not path_to_cache or not cache_hit:
+             log_single_rank(
+                 logger,
+                 logging.INFO,
+@@ -541,7 +538,7 @@ class GPTDataset(MegatronDataset):
+                     sample_index.shape[0] - 1, sample_index.shape[0] - 1, numpy_random_state
+                 )
+ 
+-            if path_to_cache:
++            if path_to_cache and int(os.environ.get("LOCAL_RANK", 0)) == 0:
+                 os.makedirs(path_to_cache, exist_ok=True)
+                 # Write the description
+                 with open(path_to_description, "wt") as writer:
+diff --git a/megatron/training/checkpointing.py b/megatron/training/checkpointing.py
+index a3d307f..c4f3450 100644
+--- a/megatron/training/checkpointing.py
++++ b/megatron/training/checkpointing.py
+@@ -701,8 +701,7 @@ def save_checkpoint(iteration, model, optimizer, opt_param_scheduler, num_floati
+                 torch.distributed.barrier()
+ 
+     # And update the latest iteration
+-    if not torch.distributed.is_initialized() \
+-            or torch.distributed.get_rank() == 0:
++    if not torch.distributed.is_initialized() or is_last_rank():
+         tracker_filename = get_checkpoint_tracker_filename(save_dir)
+ 
+         if ckpt_type == CheckpointType.LOCAL:
+diff --git a/megatron/training/training.py b/megatron/training/training.py
+index d61b935..fb7a06f 100644
+--- a/megatron/training/training.py
++++ b/megatron/training/training.py
+@@ -2058,6 +2058,10 @@ def training_log(
+             if wandb_writer:
+                 wandb_writer.log({'iter-energy/gpu': energy}, iteration)
+                 wandb_writer.log({'power/gpu': power}, iteration)
++
++        if wandb_writer:
++            wandb_writer.log({}, iteration, commit=True)
++
+         # Decoupled_learning_rate should be not None only on first and last pipeline stage.
+         log_string += f' learning rate: {learning_rate:.6E} |'
+         log_string += f' global batch size: {batch_size:5d} |'
+diff --git a/tools/preprocess_data.py b/tools/preprocess_data.py
+index 03e5329..c0970c0 100644
+--- a/tools/preprocess_data.py
++++ b/tools/preprocess_data.py
+@@ -11,6 +11,7 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__),
+ import time
+ import gzip
+ import glob
++import zstandard
+ import torch
+ import numpy as np
+ import multiprocessing
+@@ -29,6 +30,14 @@ from megatron.training.arguments import _add_tokenizer_args
+ from megatron.core.datasets import indexed_dataset
+ 
+ 
++def open_file(filename):
++    if filename.endswith(".gz"):
++        return gzip.open(filename, 'rt')
++    if filename.endswith(".zst"):
++        return zstandard.open(filename, 'rt', encoding='utf-8')
++    return open(filename, 'r', encoding='utf-8')
++
++
+ # https://stackoverflow.com/questions/33139531/preserve-empty-lines-with-nltks-punkt-tokenizer
+ class CustomLanguageVars(PunktLanguageVars):
+ 
+@@ -131,7 +140,7 @@ class Partition(object):
+     def split_sentences(self, file_name):
+         input_file_name, output_file_name = file_name
+         print("Opening", input_file_name)
+-        fin = open(input_file_name, 'r', encoding='utf-8')
++        fin = open_file(input_file_name)
+         fout = open(output_file_name, 'w')
+ 
+         encoder = Encoder(self.args)
+@@ -152,7 +161,7 @@ class Partition(object):
+     def process_json_file(self, file_name):
+         input_file_name, output_prefix = file_name
+         print("Opening", input_file_name)
+-        fin = open(input_file_name, 'r', encoding='utf-8')
++        fin = open_file(input_file_name)
+ 
+         startup_start = time.time()
+         encoder = Encoder(self.args)
+@@ -316,11 +325,7 @@ def main():
+             index = 0
+             if args.keep_sequential_samples: line_count = 0
+             for in_file_name in in_file_names:
+-                # support for gzip files
+-                if in_file_name.endswith(".gz"):
+-                    fin = gzip.open(in_file_name, 'rt')
+-                else:
+-                    fin = open(in_file_name, 'r', encoding='utf-8')
++                fin = open_file(in_file_name)
+ 
+                 for line in fin:
+                     partitioned_input_files[index].write(line)

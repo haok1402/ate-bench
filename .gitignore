@@ -1,0 +1,4 @@
+*.pyc
+/workspace
+/snapshots
+/CLAUDE.md

@@ -1,0 +1,221 @@
+diff --git a/.gitignore b/.gitignore
+index b84b6d6..7457204 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -49,3 +49,7 @@ CLAUDE.local.md
+ /debug_*.py
+ CLAUDE_CONTEXT/
+ /.claude/settings.local.json
++
++# pith-train-eval
++.venv
++uv.lock
+diff --git a/challenges/train.sh b/challenges/train.sh
+new file mode 100755
+index 0000000..d038f34
+--- /dev/null
++++ b/challenges/train.sh
+@@ -0,0 +1,19 @@
++#!/bin/bash
++# Launch DeepSeek-V2-Lite continual training with torchtitan.
++
++set -euo pipefail
++source torchtitan/.venv/bin/activate
++
++OUTPUT=artifacts/train-$(date +%Y%m%d-%H%M%S).log
++mkdir -p $(dirname $OUTPUT) ; exec > >(tee -a $OUTPUT) 2>&1
++trap 'echo "exit-time: $(date +%Y%m%d-%H%M%S)"' EXIT
++
++rm -rf /tmp/torchtitan
++
++LAUNCH_ARGS=()
++LAUNCH_ARGS+=(--nnodes=${SLURM_NNODES:-1} --node-rank=${SLURM_NODEID:-0} --nproc-per-node=gpu)
++LAUNCH_ARGS+=(--rdzv-backend=c10d --rdzv-endpoint=${SLURM_LAUNCH_NODE_IPADDR:-localhost}:15213)
++LAUNCH_ARGS+=(--local-ranks-filter=6 --role=rank --tee=3)
++
++export OMP_NUM_THREADS=8; export PYTHONUNBUFFERED=1; export PYTHONPATH=$PWD/torchtitan
++torchrun ${LAUNCH_ARGS[@]} -m torchtitan.train --module deepseek_v3 --config deepseek_v2_lite_collect_routing_trace
+diff --git a/pyproject.toml b/pyproject.toml
+index cd5f187..2df20a0 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -3,13 +3,16 @@
+ name = "torchtitan"
+ description = "A PyTorch native platform for training generative AI models"
+ readme = "README.md"
+-requires-python = ">=3.10"
++requires-python = ">=3.12"
+ license = {file = "LICENSE"}
+ authors = [
+     { name = "PyTorch Team", email = "packages@pytorch.org" },
+ ]
+ keywords = ["pytorch", "training", "llm"]
+ dependencies = [
++    # PyTorch
++    "torch==2.12.0",
++
+     # Stateful Dataloader
+     "torchdata>=0.8.0",
+ 
+@@ -17,6 +20,7 @@ dependencies = [
+     "datasets>=3.6.0",
+     "tokenizers>=0.15.0",
+     "safetensors",
++    "transformers",
+ 
+     # Miscellaneous
+     "fsspec",
+@@ -25,6 +29,7 @@ dependencies = [
+     "wandb",
+     "einops",
+     "pillow",
++    "zstandard",
+ ]
+ dynamic = ["version"]
+ 
+@@ -42,6 +47,14 @@ dev = [
+     "pyrefly==0.45.1",
+ ]
+ 
++[tool.uv.sources]
++torch = { index = "torch-cu130" }
++
++[[tool.uv.index]]
++name = "torch-cu130"
++url = "https://download.pytorch.org/whl/cu130"
++explicit = true
++
+ [tool.setuptools.dynamic]
+ version = {file = "assets/version.txt"}
+ 
+diff --git a/scripts/checkpoint_conversion/convert_from_hf.py b/scripts/checkpoint_conversion/convert_from_hf.py
+index 5f51791..0584f0a 100644
+--- a/scripts/checkpoint_conversion/convert_from_hf.py
++++ b/scripts/checkpoint_conversion/convert_from_hf.py
+@@ -11,6 +11,7 @@ from pathlib import Path
+ import torch
+ import torch.distributed.checkpoint as dcp
+ from torch.distributed.checkpoint import HuggingFaceStorageReader
++from torch.distributed.checkpoint.default_planner import DefaultLoadPlanner
+ from torchtitan.components.checkpoint import ModelWrapper
+ 
+ 
+@@ -37,6 +38,7 @@ def convert_from_hf(input_dir, output_dir, model_name, model_flavor):
+     dcp.load(
+         hf_state_dict,
+         storage_reader=HuggingFaceStorageReader(path=input_dir),
++        planner=DefaultLoadPlanner(allow_partial_load=True),
+     )
+     # convert state dict format back hf->tt and save
+     state_dict = sd_adapter.from_hf(hf_state_dict)
+diff --git a/torchtitan/components/checkpoint.py b/torchtitan/components/checkpoint.py
+index 1351ae8..93828b3 100644
+--- a/torchtitan/components/checkpoint.py
++++ b/torchtitan/components/checkpoint.py
+@@ -23,6 +23,7 @@ import torch.distributed as dist
+ import torch.distributed.checkpoint as dcp
+ import torch.nn as nn
+ from torch.distributed.checkpoint import HuggingFaceStorageWriter
++from torch.distributed.checkpoint.default_planner import DefaultLoadPlanner
+ from torch.distributed.checkpoint._consolidate_hf_safetensors import (
+     consolidate_safetensors_files_on_every_rank,
+ )
+@@ -624,12 +625,17 @@ class CheckpointManager(Configurable):
+             dcp.load(
+                 hf_state_dict,
+                 storage_reader=hf_storage_reader,
++                planner=DefaultLoadPlanner(allow_partial_load=True),
+             )
+ 
+             state_dict = self.sd_adapter.from_hf(hf_state_dict)
+             self.states[MODEL].load_state_dict(state_dict)
+         else:
+-            dcp.load(state_dict, checkpoint_id=checkpoint_id)
++            dcp.load(
++                state_dict,
++                checkpoint_id=checkpoint_id,
++                planner=DefaultLoadPlanner(allow_partial_load=True),
++            )
+ 
+             # TODO: Since we flatten the model states in state_dict, we need to
+             # manually call load_state_dict() for the model. Need to fix this.
+diff --git a/torchtitan/hf_datasets/text_datasets.py b/torchtitan/hf_datasets/text_datasets.py
+index aec4f15..e3b4271 100644
+--- a/torchtitan/hf_datasets/text_datasets.py
++++ b/torchtitan/hf_datasets/text_datasets.py
+@@ -26,6 +26,13 @@ def _load_c4_dataset(dataset_path: str, split: str):
+     return load_dataset(dataset_path, name="en", split=split, streaming=True)
+ 
+ 
++def _load_dclm_dataset(dataset_path: str):
++    """
++    Load DCLM from compressed JSONL files on local disk.
++    """
++    return load_dataset("json", data_files=f"{dataset_path}/**/*.jsonl.zst", split="train", streaming=True)
++
++
+ def _process_c4_text(sample: dict[str, Any]) -> str:
+     """Process C4 dataset sample text."""
+     return sample["text"]
+@@ -48,6 +55,11 @@ DATASETS = {
+         loader=partial(_load_c4_dataset, split="validation"),
+         sample_processor=_process_c4_text,
+     ),
++    "dclm": DatasetConfig(
++        path="datasets/dclm-baseline",
++        loader=_load_dclm_dataset,
++        sample_processor=_process_c4_text,
++    ),
+ }
+ 
+ 
+diff --git a/torchtitan/models/deepseek_v3/config_registry.py b/torchtitan/models/deepseek_v3/config_registry.py
+index 2a965ff..f11b81e 100644
+--- a/torchtitan/models/deepseek_v3/config_registry.py
++++ b/torchtitan/models/deepseek_v3/config_registry.py
+@@ -94,6 +94,45 @@ def deepseek_v3_16b() -> Trainer.Config:
+     )
+ 
+ 
++def deepseek_v2_lite_collect_routing_trace() -> Trainer.Config:
++    return Trainer.Config(
++        hf_assets_path="checkpoints/deepseek-v2-lite/tokenizer",
++        dump_folder="/tmp/torchtitan",
++        metrics=MetricsProcessor.Config(
++            log_freq=1,
++            disable_color_printing=True,
++            enable_tensorboard=False,
++            enable_wandb=False,
++        ),
++        model_spec=model_registry("16B"),
++        dataloader=HuggingFaceTextDataLoader.Config(dataset="dclm"),
++        optimizer=OptimizersContainer.Config(lr=1e-6),
++        lr_scheduler=LRSchedulersContainer.Config(
++            warmup_steps=0,
++            min_lr_factor=1.0,
++        ),
++        training=TrainingConfig(
++            local_batch_size=128,
++            global_batch_size=1024,
++            seq_len=2048,
++            steps=4,
++        ),
++        parallelism=ParallelismConfig(
++            data_parallel_shard_degree=-1,
++            pipeline_parallel_degree=4,
++            pipeline_parallel_schedule="Interleaved1F1B",
++            expert_parallel_degree=2,
++        ),
++        compile=CompileConfig(enable=True),
++        checkpoint=CheckpointManager.Config(
++            enable=True,
++            initial_load_model_only=True,
++            initial_load_path="checkpoints/deepseek-v2-lite/torch-dcp/step-00000000",
++        ),
++        activation_checkpoint=ActivationCheckpointConfig(mode="none"),
++    )
++
++
+ def deepseek_v3_671b() -> Trainer.Config:
+     return Trainer.Config(
+         hf_assets_path="./assets/hf/DeepSeek-V3.1-Base",

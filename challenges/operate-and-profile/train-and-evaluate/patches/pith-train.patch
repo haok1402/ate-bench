@@ -1,0 +1,12 @@
+diff --git a/.gitignore b/.gitignore
+index 7c1fcd1..a5085f1 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -66,3 +66,7 @@ Thumbs.db
+ debug
+ workspace
+ wandb
++
++# pith-train-eval
++.venv
++uv.lock

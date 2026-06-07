@@ -1,0 +1,178 @@
+diff --git a/.gitignore b/.gitignore
+index 7c1fcd1..a5085f1 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -66,3 +66,7 @@ Thumbs.db
+ debug
+ workspace
+ wandb
++
++# pith-train-eval
++.venv
++uv.lock
+diff --git a/challenges/model_config.json b/challenges/model_config.json
+new file mode 100644
+index 0000000..6ac5aa6
+--- /dev/null
++++ b/challenges/model_config.json
+@@ -0,0 +1,50 @@
++{
++  "architectures": ["DeepseekV2ForCausalLM"],
++  "attention_bias": false,
++  "attention_dropout": 0.0,
++  "aux_loss_alpha": 0.001,
++  "bos_token_id": 100000,
++  "eos_token_id": 100001,
++  "first_k_dense_replace": 1,
++  "hidden_act": "silu",
++  "hidden_size": 2048,
++  "initializer_range": 0.02,
++  "intermediate_size": 10944,
++  "kv_lora_rank": 512,
++  "max_position_embeddings": 163840,
++  "model_type": "deepseek_v2",
++  "moe_intermediate_size": 1408,
++  "moe_layer_freq": 1,
++  "n_group": 1,
++  "n_routed_experts": 64,
++  "n_shared_experts": 2,
++  "norm_topk_prob": false,
++  "num_attention_heads": 16,
++  "num_experts_per_tok": 6,
++  "num_hidden_layers": 27,
++  "num_key_value_heads": 16,
++  "pretraining_tp": 1,
++  "q_lora_rank": null,
++  "qk_nope_head_dim": 128,
++  "qk_rope_head_dim": 64,
++  "rms_norm_eps": 1e-06,
++  "rope_scaling": {
++    "beta_fast": 32.0,
++    "beta_slow": 1.0,
++    "factor": 40.0,
++    "mscale": 0.707,
++    "mscale_all_dim": 0.707,
++    "original_max_position_embeddings": 4096,
++    "type": "yarn"
++  },
++  "rope_theta": 10000.0,
++  "routed_scaling_factor": 1.0,
++  "scoring_func": "softmax",
++  "seq_aux": true,
++  "tie_word_embeddings": false,
++  "topk_group": 1,
++  "topk_method": "greedy",
++  "torch_dtype": "bfloat16",
++  "v_head_dim": 128,
++  "vocab_size": 102400
++}
+diff --git a/challenges/train.sh b/challenges/train.sh
+new file mode 100755
+index 0000000..a98425f
+--- /dev/null
++++ b/challenges/train.sh
+@@ -0,0 +1,16 @@
++#!/bin/bash
++# Launch DeepSeek-V2-Lite from-scratch training with PithTrain.
++
++set -euo pipefail
++source pith-train/.venv/bin/activate
++
++OUTPUT=artifacts/train-$(date +%Y%m%d-%H%M%S).log
++mkdir -p $(dirname $OUTPUT) ; exec > >(tee -a $OUTPUT) 2>&1
++trap 'echo "exit-time: $(date +%Y%m%d-%H%M%S)"' EXIT
++
++LAUNCH_ARGS=()
++LAUNCH_ARGS+=(--nnodes=${SLURM_NNODES:-1} --node-rank=${SLURM_NODEID:-0} --nproc-per-node=gpu)
++LAUNCH_ARGS+=(--rdzv-backend=c10d --rdzv-endpoint=${SLURM_LAUNCH_NODE_IPADDR:-localhost}:15213)
++
++export OMP_NUM_THREADS=8; export PYTHONUNBUFFERED=1; export PYTHONPATH=$PWD/pith-train
++torchrun ${LAUNCH_ARGS[@]} pith-train/challenges/train_config.py
+diff --git a/challenges/train_config.py b/challenges/train_config.py
+new file mode 100644
+index 0000000..f337774
+--- /dev/null
++++ b/challenges/train_config.py
+@@ -0,0 +1,27 @@
++from pathlib import Path
++
++from pithtrain.tasks.pretrain_language_model import PretrainLanguageModelCfg, launch
++
++cfg = PretrainLanguageModelCfg()
++
++distributed = cfg.distributed
++distributed.pipeline_parallel_size = 4
++distributed.expert_parallel_size = 2
++
++training = cfg.training
++training.model = Path("pith-train/challenges/model_config.json")
++training.optimizer = "Adam"
++training.scheduler = "Constant"
++training.max_lr = 1.0e-4
++training.min_lr = 1.0e-4
++training.warmup_steps = 0
++training.max_steps = 64
++training.micro_batch_size = 1
++training.global_batch_size = 1024
++training.sequence_length = 2048
++training.dataset = Path("datasets/dclm-baseline/toktxt")
++training.moe_load_balance_type = "sequence"
++training.moe_load_balance_coef = 1e-2
++
++if __name__ == "__main__":
++    launch(cfg)
+diff --git a/challenges/verify.sh b/challenges/verify.sh
+new file mode 100755
+index 0000000..0ed08dd
+--- /dev/null
++++ b/challenges/verify.sh
+@@ -0,0 +1,16 @@
++#!/bin/bash
++# Quick smoke test for the training of DeepSeek-V2-Lite.
++
++set -euo pipefail
++source pith-train/.venv/bin/activate
++
++OUTPUT=artifacts/verify-$(date +%Y%m%d-%H%M%S).log
++mkdir -p $(dirname $OUTPUT) ; exec > >(tee -a $OUTPUT) 2>&1
++trap 'echo "exit-time: $(date +%Y%m%d-%H%M%S)"' EXIT
++
++LAUNCH_ARGS=()
++LAUNCH_ARGS+=(--nnodes=${SLURM_NNODES:-1} --node-rank=${SLURM_NODEID:-0} --nproc-per-node=gpu)
++LAUNCH_ARGS+=(--rdzv-backend=c10d --rdzv-endpoint=${SLURM_LAUNCH_NODE_IPADDR:-localhost}:15213)
++
++export OMP_NUM_THREADS=8; export PYTHONUNBUFFERED=1; export PYTHONPATH=$PWD/pith-train
++torchrun ${LAUNCH_ARGS[@]} pith-train/challenges/verify_config.py
+diff --git a/challenges/verify_config.py b/challenges/verify_config.py
+new file mode 100644
+index 0000000..e16c30a
+--- /dev/null
++++ b/challenges/verify_config.py
+@@ -0,0 +1,27 @@
++from pathlib import Path
++
++from pithtrain.tasks.pretrain_language_model import PretrainLanguageModelCfg, launch
++
++cfg = PretrainLanguageModelCfg()
++
++distributed = cfg.distributed
++distributed.pipeline_parallel_size = 4
++distributed.expert_parallel_size = 2
++
++training = cfg.training
++training.model = Path("pith-train/challenges/model_config.json")
++training.optimizer = "Adam"
++training.scheduler = "Constant"
++training.max_lr = 1.0e-4
++training.min_lr = 1.0e-4
++training.warmup_steps = 0
++training.max_steps = 4
++training.micro_batch_size = 1
++training.global_batch_size = 1024
++training.sequence_length = 2048
++training.dataset = Path("datasets/dclm-baseline/toktxt")
++training.moe_load_balance_type = "sequence"
++training.moe_load_balance_coef = 1e-2
++
++if __name__ == "__main__":
++    launch(cfg)

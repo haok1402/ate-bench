@@ -1,0 +1,30 @@
+diff --git a/challenges/evaluate.sh b/challenges/evaluate.sh
+new file mode 100755
+index 0000000..9a962db
+--- /dev/null
++++ b/challenges/evaluate.sh
+@@ -0,0 +1,24 @@
++#!/bin/bash
++# HellaSwag (0-shot) evaluation of a HuggingFace-format checkpoint via lm-evaluation-harness + vLLM.
++
++set -euo pipefail
++source lm-evaluation-harness/.venv/bin/activate
++
++CKPT=${1:-checkpoints/deepseek-v2-lite/hf-export}
++if [[ ! -d "$CKPT" ]]; then
++    echo "ERROR: checkpoint dir not found at $CKPT" >&2
++    exit 2
++fi
++
++OUTPUT=artifacts/evaluate-$(date +%Y%m%d-%H%M%S).log
++mkdir -p $(dirname $OUTPUT) ; exec > >(tee -a $OUTPUT) 2>&1
++trap 'echo "exit-time: $(date +%Y%m%d-%H%M%S)"' EXIT
++
++CMDARG=()
++CMDARG+=(--model vllm)
++CMDARG+=(--model_args "pretrained=$CKPT,tokenizer=deepseek-ai/DeepSeek-V2-Lite,dtype=bfloat16,tensor_parallel_size=1,data_parallel_size=8,gpu_memory_utilization=0.9,trust_remote_code=True,max_model_len=4096")
++CMDARG+=(--batch_size auto)
++CMDARG+=(--tasks hellaswag --num_fewshot 0)
++
++export PYTHONUNBUFFERED=1; export CUDA_HOME=/usr/local/cuda-13.0; export TOKENIZERS_PARALLELISM=false
++python3 -m lm_eval "${CMDARG[@]}"

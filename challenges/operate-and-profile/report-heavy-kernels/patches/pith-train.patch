@@ -1,0 +1,71 @@
+diff --git a/.gitignore b/.gitignore
+index 7c1fcd1..a5085f1 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -66,3 +66,7 @@ Thumbs.db
+ debug
+ workspace
+ wandb
++
++# pith-train-eval
++.venv
++uv.lock
+diff --git a/challenges/train.sh b/challenges/train.sh
+new file mode 100755
+index 0000000..6e1a490
+--- /dev/null
++++ b/challenges/train.sh
+@@ -0,0 +1,16 @@
++#!/bin/bash
++# DeepSeek-V2-Lite heavy-kernels profiling run with PithTrain.
++
++set -euo pipefail
++source pith-train/.venv/bin/activate
++
++OUTPUT=artifacts/train-$(date +%Y%m%d-%H%M%S).log
++mkdir -p $(dirname $OUTPUT) ; exec > >(tee -a $OUTPUT) 2>&1
++trap 'echo "exit-time: $(date +%Y%m%d-%H%M%S)"' EXIT
++
++LAUNCH_ARGS=()
++LAUNCH_ARGS+=(--nnodes=${SLURM_NNODES:-1} --node-rank=${SLURM_NODEID:-0} --nproc-per-node=gpu)
++LAUNCH_ARGS+=(--rdzv-backend=c10d --rdzv-endpoint=${SLURM_LAUNCH_NODE_IPADDR:-localhost}:15213)
++
++export OMP_NUM_THREADS=8; export PYTHONUNBUFFERED=1; export PYTHONPATH=$PWD/pith-train
++torchrun ${LAUNCH_ARGS[@]} pith-train/challenges/train_config.py
+diff --git a/challenges/train_config.py b/challenges/train_config.py
+new file mode 100644
+index 0000000..5982184
+--- /dev/null
++++ b/challenges/train_config.py
+@@ -0,0 +1,31 @@
++from pathlib import Path
++
++from pithtrain.tasks.pretrain_language_model import PretrainLanguageModelCfg, launch
++
++cfg = PretrainLanguageModelCfg()
++
++distributed = cfg.distributed
++distributed.pipeline_parallel_size = 4
++distributed.expert_parallel_size = 2
++
++training = cfg.training
++training.model = Path("pith-train/examples/pretrain_language_model/deepseek-v2-lite/config.json")
++training.optimizer = "Adam"
++training.scheduler = "Constant"
++training.max_lr = 1.0e-6
++training.min_lr = 1.0e-6
++training.warmup_steps = 0
++training.max_steps = 7
++training.micro_batch_size = 1
++training.global_batch_size = 1024
++training.sequence_length = 2048
++training.dataset = Path("datasets/dclm-baseline/toktxt/deepseek-v2")
++training.moe_load_balance_type = "sequence"
++training.moe_load_balance_coef = 1e-2
++training.save_location = Path("checkpoints/deepseek-v2-lite")
++
++logging = cfg.logging
++logging.wandb = None
++
++if __name__ == "__main__":
++    launch(cfg)

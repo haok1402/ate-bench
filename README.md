@@ -1,0 +1,44 @@
+<h1 align="center">ATE-Bench</h1>
+
+<p align="center">
+  <a href="https://blog.mlc.ai/2026/06/01/pithtrain-compact-agent-native-moe-training-system">Blog</a>
+  &nbsp;|&nbsp;
+  <a href="https://arxiv.org/abs/2605.31463">Paper</a>
+</p>
+
+ATE-Bench (Agent-Task Efficiency) measures how efficiently a coding agent, like [Claude Code](https://www.anthropic.com/claude-code), completes real tasks on ML training frameworks. Each attempt materializes a pinned framework on disposable scratch, hands the agent a challenge, and captures the agent's diff, outputs, and session as a permanent, reproducible record.
+
+## Getting Started
+
+From the repo root, with `uv` and an authenticated `claude` installed:
+
+```bash
+python3 challenges/launch.py <framework> <challenge>
+```
+
+- `<framework>` — one of `torchtitan`, `pith-train`, `Megatron-LM`.
+- `<challenge>` — the repo-relative path to a challenge directory, e.g.:
+
+```bash
+python3 challenges/launch.py torchtitan challenges/new-features/differential-transformer
+```
+
+Each run clones the framework at its pinned commit into a throwaway sandbox under `workspace/`, runs the agent, and writes the record (patches, artifacts, session transcript) to `snapshots/<challenge>/<uuid>/`. The challenge categories under `challenges/` are `question-and-answer/` (read-only codebase Q&A), `operate-and-profile/` (run, instrument, and profile a workflow), and `new-features/` (integrate a new architecture).
+
+We recommend pointing `workspace/` at a locally-mounted disk rather than NFS. For full isolation, every task installs its own environment and clones the framework from scratch, so this directory takes heavy, repeated I/O — and local disks are much faster than NFS for it. Only the small, permanent records under `snapshots/` need to live on shared storage. You may additionally set `ANTHROPIC_API_KEY` to authenticate the agent.
+
+## Citation
+
+If you find ATE-Bench useful in your research, please consider citing:
+
+```bibtex
+@misc{pithtrain2026,
+  title={PithTrain: A Compact and Agent-Native MoE Training System},
+  author={Ruihang Lai and Hao Kang and Haozhan Tang and Akaash R. Parthasarathy and Zichun Yu and Junru Shao and Todd C. Mowry and Chenyan Xiong and Tianqi Chen},
+  year={2026},
+  eprint={2605.31463},
+  archivePrefix={arXiv},
+  primaryClass={cs.LG},
+  url={https://arxiv.org/abs/2605.31463},
+}
+```
