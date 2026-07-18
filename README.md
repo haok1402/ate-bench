@@ -10,10 +10,10 @@ ATE-Bench (Agent-Task Efficiency) measures how efficiently a coding agent, like 
 
 ## Getting Started
 
-From the repo root, with `uv` and an authenticated `claude` installed:
+From the repo root, with `uv` and an authenticated agent CLI installed:
 
 ```bash
-python3 challenges/launch.py <framework> <challenge>
+python3 challenges/launch.py <framework> <challenge> [--agent claude|codex]
 ```
 
 - `<framework>` — one of `torchtitan`, `pith-train`, `Megatron-LM`.
@@ -22,6 +22,20 @@ python3 challenges/launch.py <framework> <challenge>
 ```bash
 python3 challenges/launch.py torchtitan challenges/new-features/differential-transformer
 ```
+
+The default agent is Claude Code, matching the original benchmark:
+
+```bash
+python3 challenges/launch.py Megatron-LM challenges/operate-and-profile/getting-started --agent claude
+```
+
+Codex can be selected with `--agent codex`:
+
+```bash
+python3 challenges/launch.py Megatron-LM challenges/operate-and-profile/getting-started --agent codex
+```
+
+Use `--model <name>` to override the selected agent's pinned default. The launcher saves each agent's JSON event stream under `artifacts/` and copies its native session transcripts into the final snapshot.
 
 Each run clones the framework at its pinned commit into a throwaway sandbox under `workspace/`, runs the agent, and writes the record (patches, artifacts, session transcript) to `snapshots/<challenge>/<uuid>/`. The challenge categories under `challenges/` are `question-and-answer/` (read-only codebase Q&A), `operate-and-profile/` (run, instrument, and profile a workflow), and `new-features/` (integrate a new architecture).
 

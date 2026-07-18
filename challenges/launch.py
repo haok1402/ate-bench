@@ -1,8 +1,11 @@
 import argparse
+import json
 import os
 import secrets
+import shlex
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 WORKSPACE = Path("workspace").resolve()
@@ -12,21 +15,22 @@ UV_CACHE_DIR.mkdir(parents=True, exist_ok=True)
 HF_HOME = Path("workspace/hf-home").resolve()
 HF_HOME.mkdir(parents=True, exist_ok=True)
 HF_TOKEN_PATH = Path(Path.home(), ".cache/huggingface/token")
+DEFAULT_MODELS = {"claude": "claude-opus-4-7", "codex": "gpt-5.6"}
 
 os.environ.setdefault("UV_CACHE_DIR", UV_CACHE_DIR.as_posix())
 os.environ.setdefault("HF_HOME", HF_HOME.as_posix())
 os.environ.setdefault("HF_TOKEN_PATH", HF_TOKEN_PATH.as_posix())
 os.environ.setdefault("PYTHONUNBUFFERED", "1")
 
-for tool in ("uv", "claude"):
+for tool in ("uv",):
     if shutil.which(tool) is None:
         raise SystemExit("required tool not on PATH: %s" % tool)
 
 
 class Runner:
 
-    def __init__(self, framework: str, challenge: str):
-        self.framework, self.challenge = framework, challenge
+    def __init__(self, framework: str, challenge: str, agent: str, model: str | None):
+        self.framework, self.challenge, self.agent, self.model = framework, challenge, agent, model
         self.uuid = "-".join([framework, secrets.token_hex(3)])
         self.workspace = Path(WORKSPACE, challenge, self.uuid)
         self.workspace.mkdir(parents=True, exist_ok=False)
@@ -41,8 +45,19 @@ class Runner:
         # Run the agent in the workspace; stream its JSON events to stdout for progress.
         instruction = Path(self.challenge, "instruction.md").read_text()
         instruction = instruction.format(framework=self.framework)
+        if self.agent == "claude":
+            args = self.claude_args(instruction)
+        elif self.agent == "codex":
+            args = self.codex_args(instruction)
+        else:
+            raise ValueError("unsupported agent: %s" % self.agent)
+        self.run_agent(args)
+
+    def claude_args(self, instruction: str):
+        if shutil.which("claude") is None:
+            raise SystemExit("required tool not on PATH: claude")
         args = ["claude", "--print"]
-        args.extend(["--model", "claude-opus-4-7", "--effort", "xhigh"])
+        args.extend(["--model", self.model or DEFAULT_MODELS["claude"], "--effort", "xhigh"])
         args.extend(["--output-format", "stream-json", "--include-partial-messages"])
         # question-and-answer challenges are read-only: the agent investigates the code, never edits it.
         # Keep --disallowedTools ahead of other flags so its variadic value never swallows the instruction.
@@ -50,7 +65,43 @@ class Runner:
             args.extend(["--disallowedTools", "Edit,Write,NotebookEdit"])
         args.extend(["--dangerously-skip-permissions", "--verbose"])
         args.append(instruction)
-        subprocess.run(args, cwd=self.workspace, check=True)
+        return args
+
+    def codex_args(self, instruction: str):
+        if shutil.which("codex") is None:
+            raise SystemExit("required tool not on PATH: codex")
+        sandbox = "read-only" if "question-and-answer" in self.challenge else "workspace-write"
+        args = ["codex", "--ask-for-approval", "never", "exec", "--json"]
+        args.extend(["--sandbox", sandbox])
+        args.extend(["-o", "artifacts/codex-last-message.txt"])
+        args.extend(["--model", self.model or DEFAULT_MODELS["codex"]])
+        args.append(instruction)
+        return args
+
+    def run_agent(self, args):
+        events = Path(self.workspace, "artifacts", "%s-events.jsonl" % self.agent)
+        command = Path(self.workspace, "artifacts", "%s-command.txt" % self.agent)
+        command.write_text(" ".join(shlex.quote(str(arg)) for arg in args) + "\n")
+        with events.open("wb") as log:
+            proc = subprocess.Popen(args, cwd=self.workspace, stdout=subprocess.PIPE)
+            try:
+                assert proc.stdout is not None
+                for line in proc.stdout:
+                    sys.stdout.buffer.write(line)
+                    sys.stdout.buffer.flush()
+                    log.write(line)
+                    log.flush()
+                returncode = proc.wait()
+            except BaseException:
+                proc.terminate()
+                try:
+                    proc.wait(timeout=10)
+                except subprocess.TimeoutExpired:
+                    proc.kill()
+                    proc.wait()
+                raise
+        if returncode:
+            raise subprocess.CalledProcessError(returncode, args)
 
     def capture(self):
         snapshot = Path("snapshots", self.challenge, self.uuid)
@@ -64,16 +115,54 @@ class Runner:
                 continue
             with Path(patches, "%s.patch" % codebase.name).open("wb") as patch:
                 subprocess.run(["git", "diff", "--cached", "--binary", "main"], cwd=codebase, stdout=patch, check=True)
-        # Capture the artifacts and the claude code session.
+        # Capture the artifacts and any agent-specific session directory.
         shutil.copytree(Path(self.workspace, "artifacts"), Path(snapshot, "artifacts"), dirs_exist_ok=True)
-        project = Path(Path.home(), ".claude/projects", self.workspace.as_posix().replace("/", "-"))
-        shutil.copytree(project, Path(snapshot, "claude-session"), dirs_exist_ok=True)
+        if self.agent == "claude":
+            project = Path(Path.home(), ".claude/projects", self.workspace.as_posix().replace("/", "-"))
+            if project.exists():
+                shutil.copytree(project, Path(snapshot, "claude-session"), dirs_exist_ok=True)
+        elif self.agent == "codex":
+            self.capture_codex_sessions(Path(snapshot, "codex-sessions"))
+
+    def capture_codex_sessions(self, destination: Path):
+        codex_home = Path(os.environ.get("CODEX_HOME", Path.home() / ".codex")).expanduser()
+        sessions = Path(codex_home, "sessions")
+        if not sessions.exists():
+            print("warning: Codex session directory not found: %s" % sessions, file=sys.stderr)
+            return
+
+        copied = 0
+        workspace = self.workspace.resolve()
+        for transcript in sorted(sessions.rglob("*.jsonl")):
+            try:
+                with transcript.open(encoding="utf-8") as session:
+                    metadata = json.loads(session.readline())
+            except (OSError, UnicodeError, json.JSONDecodeError):
+                continue
+
+            payload = metadata.get("payload")
+            if metadata.get("type") != "session_meta" or not isinstance(payload, dict):
+                continue
+            session_workspace = payload.get("cwd")
+            if not isinstance(session_workspace, str):
+                continue
+            if Path(session_workspace).resolve() != workspace:
+                continue
+
+            target = Path(destination, transcript.relative_to(sessions))
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(transcript, target)
+            copied += 1
+
+        if not copied:
+            print("warning: no Codex sessions found for workspace: %s" % workspace, file=sys.stderr)
 
     def cleanup(self):
-        # Remove the workspace and the claude code session.
-        project = Path(Path.home(), ".claude/projects", self.workspace.as_posix().replace("/", "-"))
+        # Remove the workspace and any Claude Code session.
         shutil.rmtree(self.workspace, ignore_errors=True)
-        shutil.rmtree(project, ignore_errors=True)
+        if self.agent == "claude":
+            project = Path(Path.home(), ".claude/projects", self.workspace.as_posix().replace("/", "-"))
+            shutil.rmtree(project, ignore_errors=True)
 
     def launch(self):
         self.prepare()
@@ -90,5 +179,7 @@ if __name__ == "__main__":
     p = argparse.ArgumentParser()
     p.add_argument("framework", type=str, choices=["torchtitan", "pith-train", "Megatron-LM"])
     p.add_argument("challenge", type=lambda s: s if Path(s).is_dir() else p.error("%s is not a valid task" % s))
+    p.add_argument("--agent", type=str, choices=["claude", "codex"], default="claude")
+    p.add_argument("--model", type=str, default=None, help="Agent model override")
     a = p.parse_args()
-    Runner(a.framework, a.challenge).launch()
+    Runner(a.framework, a.challenge, a.agent, a.model).launch()
