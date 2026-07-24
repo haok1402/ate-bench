@@ -23,7 +23,7 @@ os.environ.setdefault("PYTHONUNBUFFERED", "1")
 
 for tool in ("uv",):
     if shutil.which(tool) is None:
-        raise SystemExit("required tool not on PATH: %s" % tool)
+        raise SystemExit(f"required tool not on PATH: {tool}")
 
 
 class Runner:
@@ -37,7 +37,7 @@ class Runner:
     def prepare(self):
         # Materialize the workspace: the per-challenge script clones, patches, and builds the framework.
         Path(self.workspace, "artifacts").mkdir()
-        prepare = Path(self.challenge, "prepare", "%s.sh" % self.framework).as_posix()
+        prepare = Path(self.challenge, "prepare", f"{self.framework}.sh").as_posix()
         subprocess.run(["bash", prepare, self.workspace.as_posix()], check=True)
 
     def attempt(self):
@@ -49,7 +49,7 @@ class Runner:
         elif self.agent == "codex":
             args = self.codex_args(instruction)
         else:
-            raise ValueError("unsupported agent: %s" % self.agent)
+            raise ValueError(f"unsupported agent: {self.agent}")
         self.run_agent(args)
 
     def claude_args(self, instruction: str):
@@ -78,11 +78,11 @@ class Runner:
         return args
 
     def run_agent(self, args):
-        script = Path(self.workspace, "%s-launch.sh" % self.agent)
+        script = Path(self.workspace, f"{self.agent}-launch.sh")
         with script.open("w") as f:
             f.write("#!/bin/bash\n")
-            f.write("cd %s\n" % shlex.quote(self.workspace.as_posix()))
-            f.write("exec %s\n" % " ".join(shlex.quote(str(arg)) for arg in args))
+            f.write(f"cd {shlex.quote(self.workspace.as_posix())}\n")
+            f.write(f"exec {' '.join(shlex.quote(str(arg)) for arg in args)}\n")
         script.chmod(0o755)
         subprocess.run(["bash", script.as_posix()], check=True)
 
@@ -94,12 +94,12 @@ class Runner:
         # Capture a patch for each modified codebase; skip the ones the agent left untouched.
         for codebase in sorted(git.parent for git in self.workspace.glob("*/.git")):
             subprocess.run(["git", "add", "-A"], cwd=codebase, check=True)
-            if subprocess.run(["git", "diff", "--cached", "--quiet", "main"], cwd=codebase).returncode == 0:
+            if subprocess.run(["git", "diff", "--cached", "--quiet", "main"], cwd=codebase, check=False).returncode == 0:
                 continue
-            with Path(patches, "%s.patch" % codebase.name).open("wb") as patch:
+            with Path(patches, f"{codebase.name}.patch").open("wb") as patch:
                 subprocess.run(["git", "diff", "--cached", "--binary", "main"], cwd=codebase, stdout=patch, check=True)
         # Capture the launch script, artifacts, and agent session.
-        script = Path(self.workspace, "%s-launch.sh" % self.agent)
+        script = Path(self.workspace, f"{self.agent}-launch.sh")
         if script.exists():
             shutil.copy2(script, Path(snapshot, script.name))
         shutil.copytree(Path(self.workspace, "artifacts"), Path(snapshot, "artifacts"), dirs_exist_ok=True)
@@ -148,7 +148,7 @@ class Runner:
 if __name__ == "__main__":
     p = argparse.ArgumentParser()
     p.add_argument("framework", type=str, choices=["torchtitan", "pith-train", "Megatron-LM"])
-    p.add_argument("challenge", type=lambda s: s if Path(s).is_dir() else p.error("%s is not a valid task" % s))
+    p.add_argument("challenge", type=lambda s: s if Path(s).is_dir() else p.error(f"{s} is not a valid task"))
     p.add_argument("--agent", type=str, choices=["claude", "codex"], default="claude")
     p.add_argument("--model", type=str, default=None, help="Agent model override")
     a = p.parse_args()
