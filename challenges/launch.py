@@ -22,7 +22,7 @@ os.environ.setdefault("PYTHONUNBUFFERED", "1")
 
 for tool in ("uv",):
     if shutil.which(tool) is None:
-        raise SystemExit(f"required tool not on PATH: {tool}")
+        raise SystemExit(f"missing the required tool: {tool}")
 
 
 class Runner:
@@ -55,7 +55,7 @@ class Runner:
 
     def build_claude_command(self, instruction: str):
         if shutil.which("claude") is None:
-            raise SystemExit("required tool not on PATH: claude")
+            raise SystemExit("missing the required tool: claude")
         args = ["claude", "--print"]
         args.extend(["--model", self.model, "--effort", "xhigh"])
         args.extend(["--output-format", "stream-json", "--include-partial-messages"])
@@ -69,7 +69,7 @@ class Runner:
 
     def build_codex_command(self, instruction: str):
         if shutil.which("codex") is None:
-            raise SystemExit("required tool not on PATH: codex")
+            raise SystemExit("missing the required tool: codex")
         sandbox = "read-only" if "question-and-answer" in self.challenge else "workspace-write"
         args = ["codex", "-c", "model_reasoning_effort=high", "--ask-for-approval", "never", "exec", "--json"]
         args.append("--skip-git-repo-check")
