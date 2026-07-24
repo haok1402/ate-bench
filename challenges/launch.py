@@ -57,7 +57,7 @@ class Runner:
     def build_codex_command(self, instruction: str):
         if shutil.which("codex") is None:
             raise SystemExit("missing the required tool: codex")
-        sandbox = "read-only" if "question-and-answer" in self.challenge else "workspace-write"
+        sandbox = "read-only" if "question-and-answer" in self.challenge else "danger-full-access"
         args = ["codex", "-c", "model_reasoning_effort=high", "--ask-for-approval", "never", "exec", "--json"]
         args.append("--skip-git-repo-check")
         args.extend(["--sandbox", sandbox])
