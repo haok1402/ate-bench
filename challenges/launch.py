@@ -48,8 +48,6 @@ class Runner:
         args = ["claude", "--print"]
         args.extend(["--model", self.model, "--effort", "xhigh"])
         args.extend(["--output-format", "stream-json", "--include-partial-messages"])
-        # question-and-answer challenges are read-only: the agent investigates the code, never edits it.
-        # Keep --disallowedTools ahead of other flags so its variadic value never swallows the instruction.
         if "question-and-answer" in self.challenge:
             args.extend(["--disallowedTools", "Edit,Write,NotebookEdit"])
         args.extend(["--dangerously-skip-permissions", "--verbose"])
