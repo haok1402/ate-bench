@@ -118,14 +118,14 @@ def effort_table(
             lines.append("| " + " | ".join(row) + " |")
         return "\n".join(lines)
 
-    headers = [item_header, "Framework"] + m_labels
-    aligns = ["l", "l"] + ["r"] * len(m_keys)
+    headers = [item_header, "Framework", SEP] + m_labels
+    aligns = ["l", "r", "c"] + ["r"] * len(m_keys)
     rows = []
     for item_key, item_label in items:
         win_by_metric = {mk: winners(item_key, mk) for mk in m_keys}
         for i, fw in enumerate(fw_keys):
             label = item_label if i == 0 else ""
-            row = [label, fw_labels[i]]
+            row = [label, fw_labels[i], SEP]
             row.extend(cell(item_key, fw, mk, win_by_metric[mk]) for mk in m_keys)
             rows.append(row)
     return markdown_table(headers, rows, aligns)

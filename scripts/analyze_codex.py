@@ -26,9 +26,14 @@ between consecutive timestamped records, an interval is counted in full when the
 gap is <= 600s or when it spans a tool call (a `function_call` whose `call_id` is
 answered by the next record's `function_call_output`); otherwise only the first
 600s is credited, so a long idle wait does not inflate the metric. Intervals are
-then merged and summed. Active GPU time (verify.sh / train.sh) is intentionally
-excluded here -- the Q&A suite is read-only; it becomes relevant only once
-training jobs are in scope.
+then merged and summed. This is the agent's own active time; GPU jobs are not part of it.
+
+Active GPU Time is a separate metric reported for the training categories
+(new-features, operate-and-profile). It accumulates the durations of the run's
+artifacts/{train,verify}-*.log segments, each running from the 'YYYYMMDD-HHMMSS' stamp
+in its filename to the last 'exit-time:' line inside it. Logs missing that marker are
+skipped, so a single absent exit-time stays small in impact. The Q&A suite is read-only
+and produces no such logs. Session Duration and Active GPU Time are reported in minutes.
 
 A codex `token_count` event carries `input_tokens` that already includes the
 cached prefix (`cached_input_tokens` is a subset), so it is the direct analog of
@@ -184,6 +189,56 @@ def active_seconds(transcripts, idle_threshold_sec=IDLE_THRESHOLD_SEC):
     return sum((end - start).total_seconds() for start, end in merged)
 
 
+def parse_stamp(s):
+    """
+    Parse a 'YYYYMMDD-HHMMSS' stamp (log filename or exit-time) to a UTC-aware datetime, or None.
+
+    The stamp carries no offset; UTC is attached so the value is tz-aware. Only differences
+    between two stamps from the same run are ever taken, so the choice of zone cancels out.
+    """
+    try:
+        return datetime.strptime(s, "%Y%m%d-%H%M%S").replace(tzinfo=timezone.utc)
+    except (TypeError, ValueError):
+        return None
+
+
+def last_exit_time(log_file: Path):
+    """The datetime of the last 'exit-time: <stamp>' line in a log, or None if it has none."""
+    stamp = None
+    with log_file.open(encoding="utf-8", errors="replace") as f:
+        for line in f:
+            line = line.strip()
+            if line.startswith("exit-time:"):
+                stamp = line.split(":", 1)[1].strip()
+    return parse_stamp(stamp) if stamp else None
+
+
+def active_gpu_seconds(run_dir: Path):
+    """
+    Total GPU wall-clock seconds for a run, accumulated over its artifacts/{train,verify}-*.log.
+
+    Each log is one training segment: it starts at the 'YYYYMMDD-HHMMSS' stamp in its filename
+    and ends at the last 'exit-time:' line inside it. Logs missing that marker are skipped;
+    segments are summed, so a single missing exit-time stays small in impact (the report takes
+    the median across attempts). The Q&A suite is read-only and produces no such logs.
+    """
+    artifacts = Path(run_dir, "artifacts")
+    if not artifacts.is_dir():
+        return 0.0
+    total = 0.0
+    for log in sorted(artifacts.glob("*.log")):
+        if not (log.name.startswith("train-") or log.name.startswith("verify-")):
+            continue
+        start = parse_stamp(log.stem.split("-", 1)[1])
+        end = last_exit_time(log)
+        if start is None or end is None:
+            continue
+        seconds = (end - start).total_seconds()
+        if seconds > 0:
+            total += seconds
+    return total
+
+
 def discover_runs(root: Path):
     """Yield (category, challenge, framework, metrics) for every codex run under root."""
     for sessions in sorted(root.rglob("sessions")):
@@ -212,7 +267,8 @@ def discover_runs(root: Path):
             continue
         metrics = {
             "duration_min": active_seconds(transcripts) / 60.0,
-            "turns": len(per_turn_input),
+            "active_gpu_min": active_gpu_seconds(run) / 60.0,
+            "agent_turns": len(per_turn_input),
             "per_turn_context": percentile(per_turn_input, 50),
             "output_tokens": total_output,
         }
@@ -220,14 +276,15 @@ def discover_runs(root: Path):
 
 
 METRICS = {
-    "duration_min": ("Session Duration (min)", "min"),
-    "turns": ("Agent Turns", "int"),
+    "duration_min": ("Session Duration", "min"),
+    "active_gpu_min": ("Active GPU Time", "min"),
+    "agent_turns": ("Agent Turns", "int"),
     "per_turn_context": ("Per-Turn Context", "k"),
     "output_tokens": ("Output Tokens", "k"),
 }
 
-QA_FIELDS = ["turns", "per_turn_context", "output_tokens"]
-OP_FIELDS = ["duration_min", "turns", "per_turn_context", "output_tokens"]
+QA_FIELDS = ["agent_turns", "per_turn_context", "output_tokens"]
+OP_FIELDS = ["duration_min", "active_gpu_min", "agent_turns", "per_turn_context", "output_tokens"]
 
 QA = "question-and-answer"
 CATEGORY_ORDER = ["question-and-answer", "operate-and-profile", "new-features"]
