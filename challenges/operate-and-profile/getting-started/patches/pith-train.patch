@@ -69,3 +69,16 @@ index 0000000..1e1aae0
 +
 +if __name__ == "__main__":
 +    launch(cfg)
+diff --git a/pyproject.toml b/pyproject.toml
+index 75a31b2..20a9989 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -5,7 +5,7 @@ license = "Apache-2.0"
+ requires-python = ">=3.12"
+ dependencies = [
+     "deep-gemm",
+-    "flash-attn-4[cu13]>=4.0.0b7",
++    "flash-attn-4[cu13]>=4.0.0b7,<4.0.0b19",
+     "tilelang",
+     "torch>=2.10.0",
+     "transformers",
