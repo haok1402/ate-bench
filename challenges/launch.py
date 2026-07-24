@@ -33,6 +33,7 @@ class Runner:
         self.uuid = "-".join([framework, secrets.token_hex(3)])
         self.workspace = Path(WORKSPACE, challenge, self.uuid)
         self.workspace.mkdir(parents=True, exist_ok=False)
+        self.snapshot = Path("snapshots", challenge, self.uuid)
 
     def prepare(self):
         # Materialize the workspace: the per-challenge script clones, patches, and builds the framework.
@@ -44,15 +45,16 @@ class Runner:
         # Run the agent in the workspace; stream its JSON events to stdout for progress.
         instruction = Path(self.challenge, "instruction.md").read_text()
         instruction = instruction.format(framework=self.framework)
-        if self.agent == "claude":
-            args = self.claude_args(instruction)
-        elif self.agent == "codex":
-            args = self.codex_args(instruction)
-        else:
-            raise ValueError(f"unsupported agent: {self.agent}")
+        match self.agent:
+            case "claude":
+                args = self.build_claude_command(instruction)
+            case "codex":
+                args = self.build_codex_command(instruction)
+            case _:
+                raise ValueError(f"unsupported agent: {self.agent}")
         self.run_agent(args)
 
-    def claude_args(self, instruction: str):
+    def build_claude_command(self, instruction: str):
         if shutil.which("claude") is None:
             raise SystemExit("required tool not on PATH: claude")
         args = ["claude", "--print"]
@@ -66,7 +68,7 @@ class Runner:
         args.append(instruction)
         return args
 
-    def codex_args(self, instruction: str):
+    def build_codex_command(self, instruction: str):
         if shutil.which("codex") is None:
             raise SystemExit("required tool not on PATH: codex")
         sandbox = "read-only" if "question-and-answer" in self.challenge else "workspace-write"
@@ -87,7 +89,7 @@ class Runner:
         subprocess.run(["bash", script.as_posix()], check=True)
 
     def capture(self):
-        snapshot = Path("snapshots", self.challenge, self.uuid)
+        snapshot = self.snapshot
         snapshot.mkdir(parents=True, exist_ok=True)
         patches = Path(snapshot, "patches")
         patches.mkdir(parents=True, exist_ok=True)
@@ -103,20 +105,31 @@ class Runner:
         if script.exists():
             shutil.copy2(script, Path(snapshot, script.name))
         shutil.copytree(Path(self.workspace, "artifacts"), Path(snapshot, "artifacts"), dirs_exist_ok=True)
-        if self.agent == "claude":
-            self.capture_claude_sessions(Path(snapshot, "claude-session"))
-        elif self.agent == "codex":
-            self.capture_codex_sessions(Path(snapshot, "codex-sessions"))
+        match self.agent:
+            case "claude":
+                self.capture_claude_sessions()
+            case "codex":
+                self.capture_codex_sessions()
+            case _:
+                raise ValueError(f"unsupported agent: {self.agent}")
 
-    def capture_claude_sessions(self, destination: Path):
-        project = Path(Path.home(), ".claude/projects", self.workspace.as_posix().replace("/", "-"))
+    def capture_claude_sessions(self):
+        project = self.claude_project()
         if project.exists():
-            shutil.copytree(project, destination, dirs_exist_ok=True)
+            shutil.copytree(project, Path(self.snapshot, "sessions"), dirs_exist_ok=True)
 
-    def capture_codex_sessions(self, destination: Path):
-        sessions = Path(Path.home(), ".codex", "sessions")
+    def capture_codex_sessions(self):
+        destination = Path(self.snapshot, "sessions")
+        for transcript in self.codex_sessions():
+            destination.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(transcript, Path(destination, transcript.name))
+
+    def claude_project(self):
+        return Path(Path.home(), ".claude/projects", self.workspace.as_posix().replace("/", "-"))
+
+    def codex_sessions(self):
         workspace = self.workspace.resolve()
-        for transcript in sorted(sessions.glob("**/*.jsonl")):
+        for transcript in sorted(Path(Path.home(), ".codex", "sessions").glob("**/*.jsonl")):
             try:
                 with transcript.open(encoding="utf-8") as f:
                     meta = json.loads(f.readline())
@@ -124,15 +137,17 @@ class Runner:
                 continue
             cwd = (meta.get("payload") or {}).get("cwd")
             if cwd and Path(cwd).resolve() == workspace:
-                destination.mkdir(parents=True, exist_ok=True)
-                shutil.copy2(transcript, Path(destination, transcript.name))
+                yield transcript
 
     def cleanup(self):
-        # Remove the workspace and any Claude Code session.
+        # Remove the workspace and the agent's native session store.
         shutil.rmtree(self.workspace, ignore_errors=True)
-        if self.agent == "claude":
-            project = Path(Path.home(), ".claude/projects", self.workspace.as_posix().replace("/", "-"))
-            shutil.rmtree(project, ignore_errors=True)
+        match self.agent:
+            case "claude":
+                shutil.rmtree(self.claude_project(), ignore_errors=True)
+            case "codex":
+                for transcript in self.codex_sessions():
+                    transcript.unlink(missing_ok=True)
 
     def launch(self):
         self.prepare()
