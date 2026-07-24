@@ -15,7 +15,7 @@ UV_CACHE_DIR.mkdir(parents=True, exist_ok=True)
 HF_HOME = Path("workspace/hf-home").resolve()
 HF_HOME.mkdir(parents=True, exist_ok=True)
 HF_TOKEN_PATH = Path(Path.home(), ".cache/huggingface/token")
-DEFAULT_MODELS = {"claude": "claude-opus-4-7", "codex": "gpt-5.6"}
+DEFAULT_MODELS = {"claude": "claude-opus-4-7", "codex": "gpt-5.6-sol"}
 
 os.environ.setdefault("UV_CACHE_DIR", UV_CACHE_DIR.as_posix())
 os.environ.setdefault("HF_HOME", HF_HOME.as_posix())
@@ -71,7 +71,8 @@ class Runner:
         if shutil.which("codex") is None:
             raise SystemExit("required tool not on PATH: codex")
         sandbox = "read-only" if "question-and-answer" in self.challenge else "workspace-write"
-        args = ["codex", "--ask-for-approval", "never", "exec", "--json"]
+        args = ["codex", "-c", "model_reasoning_effort=high", "--ask-for-approval", "never", "exec", "--json"]
+        args.append("--skip-git-repo-check")
         args.extend(["--sandbox", sandbox])
         args.extend(["-o", "artifacts/codex-last-message.txt"])
         args.extend(["--model", self.model or DEFAULT_MODELS["codex"]])
