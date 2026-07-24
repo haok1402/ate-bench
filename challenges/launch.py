@@ -79,11 +79,9 @@ class Runner:
         return args
 
     def run_agent(self, args):
-        events = Path(self.workspace, "artifacts", "%s-stream.jsonl" % self.agent)
         script = Path(self.workspace, "artifacts", "%s-launch.sh" % self.agent)
         with script.open("w") as f:
             f.write("#!/bin/bash\n")
-            f.write("exec > >(tee %s) 2>&1\n" % shlex.quote(events.as_posix()))
             f.write("cd %s\n" % shlex.quote(self.workspace.as_posix()))
             f.write("exec %s\n" % " ".join(shlex.quote(str(arg)) for arg in args))
         script.chmod(0o755)
