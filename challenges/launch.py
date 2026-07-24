@@ -74,35 +74,20 @@ class Runner:
         args = ["codex", "-c", "model_reasoning_effort=high", "--ask-for-approval", "never", "exec", "--json"]
         args.append("--skip-git-repo-check")
         args.extend(["--sandbox", sandbox])
-        args.extend(["-o", "artifacts/codex-last-message.txt"])
         args.extend(["--model", self.model or DEFAULT_MODELS["codex"]])
         args.append(instruction)
         return args
 
     def run_agent(self, args):
-        events = Path(self.workspace, "artifacts", "%s-events.jsonl" % self.agent)
-        command = Path(self.workspace, "artifacts", "%s-command.txt" % self.agent)
-        command.write_text(" ".join(shlex.quote(str(arg)) for arg in args) + "\n")
-        with events.open("wb") as log:
-            proc = subprocess.Popen(args, cwd=self.workspace, stdout=subprocess.PIPE)
-            try:
-                assert proc.stdout is not None
-                for line in proc.stdout:
-                    sys.stdout.buffer.write(line)
-                    sys.stdout.buffer.flush()
-                    log.write(line)
-                    log.flush()
-                returncode = proc.wait()
-            except BaseException:
-                proc.terminate()
-                try:
-                    proc.wait(timeout=10)
-                except subprocess.TimeoutExpired:
-                    proc.kill()
-                    proc.wait()
-                raise
-        if returncode:
-            raise subprocess.CalledProcessError(returncode, args)
+        events = Path(self.workspace, "artifacts", "%s-stream.jsonl" % self.agent)
+        script = Path(self.workspace, "artifacts", "%s-launch.sh" % self.agent)
+        with script.open("w") as f:
+            f.write("#!/bin/bash\n")
+            f.write("exec > >(tee %s) 2>&1\n" % shlex.quote(events.as_posix()))
+            f.write("cd %s\n" % shlex.quote(self.workspace.as_posix()))
+            f.write("exec %s\n" % " ".join(shlex.quote(str(arg)) for arg in args))
+        script.chmod(0o755)
+        subprocess.run(["bash", script.as_posix()], check=True)
 
     def capture(self):
         snapshot = Path("snapshots", self.challenge, self.uuid)
