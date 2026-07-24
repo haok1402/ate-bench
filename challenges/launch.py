@@ -35,23 +35,12 @@ class Runner:
         self.snapshot = Path("snapshots", challenge, self.uuid)
 
     def prepare(self):
-        # Materialize the workspace: the per-challenge script clones, patches, and builds the framework.
+        """
+        Prepare the workspace. While the framework is pinned, challenges may apply different patches.
+        """
         Path(self.workspace, "artifacts").mkdir()
         prepare = Path(self.challenge, "prepare", f"{self.framework}.sh").as_posix()
         subprocess.run(["bash", prepare, self.workspace.as_posix()], check=True)
-
-    def attempt(self):
-        # Run the agent in the workspace; stream its JSON events to stdout for progress.
-        instruction = Path(self.challenge, "instruction.md").read_text()
-        instruction = instruction.format(framework=self.framework)
-        match self.agent:
-            case "claude":
-                args = self.build_claude_command(instruction)
-            case "codex":
-                args = self.build_codex_command(instruction)
-            case _:
-                raise ValueError(f"unsupported agent: {self.agent}")
-        self.run_agent(args)
 
     def build_claude_command(self, instruction: str):
         if shutil.which("claude") is None:
@@ -78,7 +67,10 @@ class Runner:
         args.append(instruction)
         return args
 
-    def run_agent(self, args):
+    def run_agent(self, args: list[str]):
+        """
+        Run the agent in the workspace. Its actions are streamed for progress monitoring.
+        """
         script = Path(self.workspace, f"{self.agent}-launch.sh")
         with script.open("w") as f:
             f.write("#!/bin/bash\n")
@@ -87,7 +79,36 @@ class Runner:
         script.chmod(0o755)
         subprocess.run(["bash", script.as_posix()], check=True)
 
+    def attempt(self):
+        """
+        Attempt the challenge, whose instruction to the agent is identical across frameworks.
+        """
+        instruction = Path(self.challenge, "instruction.md").read_text()
+        instruction = instruction.format(framework=self.framework)
+        match self.agent:
+            case "claude":
+                args = self.build_claude_command(instruction)
+            case "codex":
+                args = self.build_codex_command(instruction)
+            case _:
+                raise ValueError(f"unsupported agent: {self.agent}")
+        self.run_agent(args)
+
+    def capture_claude_sessions(self):
+        project = self.claude_project()
+        if project.exists():
+            shutil.copytree(project, Path(self.snapshot, "sessions"), dirs_exist_ok=True)
+
+    def capture_codex_sessions(self):
+        destination = Path(self.snapshot, "sessions")
+        for transcript in self.codex_sessions():
+            destination.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(transcript, Path(destination, transcript.name))
+
     def capture(self):
+        """
+        Capture the sessions for post-mortem analysis.
+        """
         snapshot = self.snapshot
         snapshot.mkdir(parents=True, exist_ok=True)
         patches = Path(snapshot, "patches")
@@ -112,17 +133,6 @@ class Runner:
             case _:
                 raise ValueError(f"unsupported agent: {self.agent}")
 
-    def capture_claude_sessions(self):
-        project = self.claude_project()
-        if project.exists():
-            shutil.copytree(project, Path(self.snapshot, "sessions"), dirs_exist_ok=True)
-
-    def capture_codex_sessions(self):
-        destination = Path(self.snapshot, "sessions")
-        for transcript in self.codex_sessions():
-            destination.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(transcript, Path(destination, transcript.name))
-
     def claude_project(self):
         workspace = self.workspace.as_posix().replace("/", "-")
         return Path(Path.home(), ".claude/projects", workspace)
@@ -140,7 +150,9 @@ class Runner:
                 yield transcript
 
     def cleanup(self):
-        # Remove the workspace and the agent's native session store.
+        """
+        Remove the workspace and the session storage.
+        """
         shutil.rmtree(self.workspace, ignore_errors=True)
         match self.agent:
             case "claude":
@@ -150,8 +162,11 @@ class Runner:
                     transcript.unlink(missing_ok=True)
 
     def launch(self):
-        self.prepare()
+        """
+        Launch the workflow.
+        """
         try:
+            self.prepare()
             self.attempt()
         finally:
             # If the attempt failed, we still capture. If the capture failed, we never cleanup.
