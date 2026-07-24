@@ -14,7 +14,6 @@ UV_CACHE_DIR.mkdir(parents=True, exist_ok=True)
 HF_HOME = Path("workspace/hf-home").resolve()
 HF_HOME.mkdir(parents=True, exist_ok=True)
 HF_TOKEN_PATH = Path(Path.home(), ".cache/huggingface/token")
-DEFAULT_MODELS = {"claude": "claude-opus-4-7", "codex": "gpt-5.6-sol"}
 
 os.environ.setdefault("UV_CACHE_DIR", UV_CACHE_DIR.as_posix())
 os.environ.setdefault("HF_HOME", HF_HOME.as_posix())
@@ -28,7 +27,7 @@ for tool in ("uv",):
 
 class Runner:
 
-    def __init__(self, framework: str, challenge: str, agent: str, model: str | None):
+    def __init__(self, framework: str, challenge: str, agent: str, model: str):
         self.framework, self.challenge, self.agent, self.model = framework, challenge, agent, model
         self.uuid = "-".join([framework, secrets.token_hex(3)])
         self.workspace = Path(WORKSPACE, challenge, self.uuid)
@@ -58,7 +57,7 @@ class Runner:
         if shutil.which("claude") is None:
             raise SystemExit("required tool not on PATH: claude")
         args = ["claude", "--print"]
-        args.extend(["--model", self.model or DEFAULT_MODELS["claude"], "--effort", "xhigh"])
+        args.extend(["--model", self.model, "--effort", "xhigh"])
         args.extend(["--output-format", "stream-json", "--include-partial-messages"])
         # question-and-answer challenges are read-only: the agent investigates the code, never edits it.
         # Keep --disallowedTools ahead of other flags so its variadic value never swallows the instruction.
@@ -75,7 +74,7 @@ class Runner:
         args = ["codex", "-c", "model_reasoning_effort=high", "--ask-for-approval", "never", "exec", "--json"]
         args.append("--skip-git-repo-check")
         args.extend(["--sandbox", sandbox])
-        args.extend(["--model", self.model or DEFAULT_MODELS["codex"]])
+        args.extend(["--model", self.model])
         args.append(instruction)
         return args
 
@@ -125,17 +124,18 @@ class Runner:
             shutil.copy2(transcript, Path(destination, transcript.name))
 
     def claude_project(self):
-        return Path(Path.home(), ".claude/projects", self.workspace.as_posix().replace("/", "-"))
+        workspace = self.workspace.as_posix().replace("/", "-")
+        return Path(Path.home(), ".claude/projects", workspace)
 
     def codex_sessions(self):
         workspace = self.workspace.resolve()
         for transcript in sorted(Path(Path.home(), ".codex", "sessions").glob("**/*.jsonl")):
             try:
                 with transcript.open(encoding="utf-8") as f:
-                    meta = json.loads(f.readline())
+                    metadata = json.loads(f.readline())
             except (OSError, ValueError):
                 continue
-            cwd = (meta.get("payload") or {}).get("cwd")
+            cwd = (metadata.get("payload") or {}).get("cwd")
             if cwd and Path(cwd).resolve() == workspace:
                 yield transcript
 
@@ -164,7 +164,7 @@ if __name__ == "__main__":
     p = argparse.ArgumentParser()
     p.add_argument("framework", type=str, choices=["torchtitan", "pith-train", "Megatron-LM"])
     p.add_argument("challenge", type=lambda s: s if Path(s).is_dir() else p.error(f"{s} is not a valid task"))
-    p.add_argument("--agent", type=str, choices=["claude", "codex"], default="claude")
-    p.add_argument("--model", type=str, default=None, help="Agent model override")
+    p.add_argument("agent", type=str, choices=["claude", "codex"])
+    p.add_argument("model", type=str)
     a = p.parse_args()
     Runner(a.framework, a.challenge, a.agent, a.model).launch()
