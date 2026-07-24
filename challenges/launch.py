@@ -5,7 +5,6 @@ import secrets
 import shlex
 import shutil
 import subprocess
-import sys
 from pathlib import Path
 
 WORKSPACE = Path("workspace").resolve()
@@ -79,7 +78,7 @@ class Runner:
         return args
 
     def run_agent(self, args):
-        script = Path(self.workspace, "artifacts", "%s-launch.sh" % self.agent)
+        script = Path(self.workspace, "%s-launch.sh" % self.agent)
         with script.open("w") as f:
             f.write("#!/bin/bash\n")
             f.write("cd %s\n" % shlex.quote(self.workspace.as_posix()))
@@ -99,47 +98,34 @@ class Runner:
                 continue
             with Path(patches, "%s.patch" % codebase.name).open("wb") as patch:
                 subprocess.run(["git", "diff", "--cached", "--binary", "main"], cwd=codebase, stdout=patch, check=True)
-        # Capture the artifacts and any agent-specific session directory.
+        # Capture the launch script, artifacts, and agent session.
+        script = Path(self.workspace, "%s-launch.sh" % self.agent)
+        if script.exists():
+            shutil.copy2(script, Path(snapshot, script.name))
         shutil.copytree(Path(self.workspace, "artifacts"), Path(snapshot, "artifacts"), dirs_exist_ok=True)
         if self.agent == "claude":
-            project = Path(Path.home(), ".claude/projects", self.workspace.as_posix().replace("/", "-"))
-            if project.exists():
-                shutil.copytree(project, Path(snapshot, "claude-session"), dirs_exist_ok=True)
+            self.capture_claude_sessions(Path(snapshot, "claude-session"))
         elif self.agent == "codex":
             self.capture_codex_sessions(Path(snapshot, "codex-sessions"))
 
+    def capture_claude_sessions(self, destination: Path):
+        project = Path(Path.home(), ".claude/projects", self.workspace.as_posix().replace("/", "-"))
+        if project.exists():
+            shutil.copytree(project, destination, dirs_exist_ok=True)
+
     def capture_codex_sessions(self, destination: Path):
-        codex_home = Path(os.environ.get("CODEX_HOME", Path.home() / ".codex")).expanduser()
-        sessions = Path(codex_home, "sessions")
-        if not sessions.exists():
-            print("warning: Codex session directory not found: %s" % sessions, file=sys.stderr)
-            return
-
-        copied = 0
+        sessions = Path(Path.home(), ".codex", "sessions")
         workspace = self.workspace.resolve()
-        for transcript in sorted(sessions.rglob("*.jsonl")):
+        for transcript in sorted(sessions.glob("**/*.jsonl")):
             try:
-                with transcript.open(encoding="utf-8") as session:
-                    metadata = json.loads(session.readline())
-            except (OSError, UnicodeError, json.JSONDecodeError):
+                with transcript.open(encoding="utf-8") as f:
+                    meta = json.loads(f.readline())
+            except (OSError, ValueError):
                 continue
-
-            payload = metadata.get("payload")
-            if metadata.get("type") != "session_meta" or not isinstance(payload, dict):
-                continue
-            session_workspace = payload.get("cwd")
-            if not isinstance(session_workspace, str):
-                continue
-            if Path(session_workspace).resolve() != workspace:
-                continue
-
-            target = Path(destination, transcript.relative_to(sessions))
-            target.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(transcript, target)
-            copied += 1
-
-        if not copied:
-            print("warning: no Codex sessions found for workspace: %s" % workspace, file=sys.stderr)
+            cwd = (meta.get("payload") or {}).get("cwd")
+            if cwd and Path(cwd).resolve() == workspace:
+                destination.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(transcript, Path(destination, transcript.name))
 
     def cleanup(self):
         # Remove the workspace and any Claude Code session.
