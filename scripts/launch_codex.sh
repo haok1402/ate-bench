@@ -5,9 +5,6 @@
 
 set -euo pipefail
 
-mountpoint -q snapshots || SNAPSHOTS=snapshots ./scripts/mount.sh
-mountpoint -q snapshots-indirection || SNAPSHOTS=snapshots-indirection ./scripts/mount.sh
-
 use_baseline()
 {
     unset PITH_TRAIN_URL PITH_TRAIN_SHA
