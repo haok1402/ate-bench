@@ -6,8 +6,8 @@
 export TORCHTITAN_URL="${TORCHTITAN_URL:-https://github.com/pytorch/torchtitan}"
 export TORCHTITAN_SHA="${TORCHTITAN_SHA:-d84e83dc4ef4615afefe32dc83c1369a50132ba3}"
 
-export PITH_TRAIN_URL="${PITH_TRAIN_URL:-https://github.com/mlc-ai/pith-train}"
-export PITH_TRAIN_SHA="${PITH_TRAIN_SHA:-23db1829a2e55596a5347a94e53a770721e79539}"
+export PITH_TRAIN_URL="${PITH_TRAIN_URL:-https://github.com/MasterJH5574/Pith-Train}"
+export PITH_TRAIN_SHA="${PITH_TRAIN_SHA:-32d2cd7f503c460698afc0fba7e174aa1afc2013}"
 
 export MEGATRON_LM_URL="${MEGATRON_LM_URL:-https://github.com/NVIDIA/Megatron-LM}"
 export MEGATRON_LM_SHA="${MEGATRON_LM_SHA:-3bec9aa97dda898d16ff5a89bac0ed2b6682b172}"
