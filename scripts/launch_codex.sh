@@ -31,11 +31,15 @@ run_pith()
     python3 challenges/launch.py pith-train $1 codex gpt-5.6-sol
 }
 
-# 1. baseline new-features (differential-transformer already ran -> skipped)
+run_megatron()
+{
+    python3 challenges/launch.py Megatron-LM $1 codex gpt-5.6-sol
+}
+
+# 1. baseline new-features (differential-transformer + dynamic-moe done; moba needs only Megatron-LM)
 # ----------------------------------------------------------------------------
 use_baseline
-run challenges/new-features/dynamic-mixture-of-experts
-run challenges/new-features/mixture-of-block-attention
+run_megatron challenges/new-features/mixture-of-block-attention
 run challenges/new-features/moe-plus-plus
 
 # 2. indirection new-features (PithTrain only)
@@ -45,21 +49,6 @@ run_pith challenges/new-features/differential-transformer
 run_pith challenges/new-features/dynamic-mixture-of-experts
 run_pith challenges/new-features/mixture-of-block-attention
 run_pith challenges/new-features/moe-plus-plus
-
-# 3. indirection question-and-answer (PithTrain only)
-# ----------------------------------------------------------------------------
-run_pith challenges/question-and-answer/attention-kernel-dispatch
-run_pith challenges/question-and-answer/configuration-propagation
-run_pith challenges/question-and-answer/context-sequence-parallelism
-run_pith challenges/question-and-answer/data-loading-sharding
-run_pith challenges/question-and-answer/distributed-checkpoint-serialization
-run_pith challenges/question-and-answer/distributed-seed-management
-run_pith challenges/question-and-answer/fsdp-ddp-wrapping
-run_pith challenges/question-and-answer/global-gradient-clipping
-run_pith challenges/question-and-answer/normalization-placement
-run_pith challenges/question-and-answer/process-groups-device-mesh
-run_pith challenges/question-and-answer/rope-implementation
-run_pith challenges/question-and-answer/swiglu-mlp-block
 
 # 4. baseline operate-and-profile (all frameworks)
 # ----------------------------------------------------------------------------
