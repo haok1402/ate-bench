@@ -1,6 +1,6 @@
 #!/bin/bash
 # codex + gpt-5.6-sol at high reasoning effort.
-# run <challenge> launches all three frameworks once.a
+# run <challenge> launches all three frameworks once.
 
 set -euo
 
