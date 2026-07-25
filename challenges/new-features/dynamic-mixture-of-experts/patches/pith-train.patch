@@ -68,15 +68,20 @@ index 0000000..6ac5aa6
 +}
 diff --git a/challenges/train.sh b/challenges/train.sh
 new file mode 100755
-index 0000000..53ac27b
+index 0000000..dbcfc34
 --- /dev/null
 +++ b/challenges/train.sh
-@@ -0,0 +1,16 @@
+@@ -0,0 +1,21 @@
 +#!/bin/bash
 +# Launch DeepSeek-V2-Lite from-scratch training with PithTrain.
 +
 +set -euo pipefail
 +source pith-train/.venv/bin/activate
++
++# Hide host libcudart.so.12 so cuDNN loads only cu13 (avoids "Multiple libcudart").
++CUDART_SHIM=/tmp/cudart12-shim
++mkdir -p $CUDART_SHIM && : > $CUDART_SHIM/libcudart.so.12
++export LD_LIBRARY_PATH=$CUDART_SHIM${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}
 +
 +OUTPUT=artifacts/train-$(date +%Y%m%d-%H%M%S).log
 +mkdir -p $(dirname $OUTPUT) ; exec > >(tee -a $OUTPUT) 2>&1
@@ -123,15 +128,20 @@ index 0000000..f337774
 +    launch(cfg)
 diff --git a/challenges/verify.sh b/challenges/verify.sh
 new file mode 100755
-index 0000000..dc25491
+index 0000000..8f82e4e
 --- /dev/null
 +++ b/challenges/verify.sh
-@@ -0,0 +1,16 @@
+@@ -0,0 +1,21 @@
 +#!/bin/bash
 +# Quick smoke test for the training of DeepSeek-V2-Lite.
 +
 +set -euo pipefail
 +source pith-train/.venv/bin/activate
++
++# Hide host libcudart.so.12 so cuDNN loads only cu13 (avoids "Multiple libcudart").
++CUDART_SHIM=/tmp/cudart12-shim
++mkdir -p $CUDART_SHIM && : > $CUDART_SHIM/libcudart.so.12
++export LD_LIBRARY_PATH=$CUDART_SHIM${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}
 +
 +OUTPUT=artifacts/verify-$(date +%Y%m%d-%H%M%S).log
 +mkdir -p $(dirname $OUTPUT) ; exec > >(tee -a $OUTPUT) 2>&1
