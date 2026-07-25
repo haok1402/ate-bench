@@ -1,5 +1,6 @@
 *.pyc
 /workspace
 /snapshots
+/snapshots-*
 /CLAUDE.md
 /scripts/mount.sh

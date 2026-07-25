@@ -14,6 +14,7 @@ UV_CACHE_DIR.mkdir(parents=True, exist_ok=True)
 HF_HOME = Path("workspace/hf-home").resolve()
 HF_HOME.mkdir(parents=True, exist_ok=True)
 HF_TOKEN_PATH = Path(Path.home(), ".cache/huggingface/token")
+SNAPSHOTS = Path(os.environ.get("SNAPSHOTS", "snapshots"))
 
 os.environ.setdefault("UV_CACHE_DIR", UV_CACHE_DIR.as_posix())
 os.environ.setdefault("HF_HOME", HF_HOME.as_posix())
@@ -32,7 +33,7 @@ class Runner:
         self.uuid = "-".join([framework, secrets.token_hex(3)])
         self.workspace = Path(WORKSPACE, challenge, self.uuid)
         self.workspace.mkdir(parents=True, exist_ok=False)
-        self.snapshot = Path("snapshots", challenge, self.uuid)
+        self.snapshot = Path(SNAPSHOTS, challenge, self.uuid)
 
     def prepare(self):
         """
