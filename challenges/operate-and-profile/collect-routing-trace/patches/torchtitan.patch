@@ -24,7 +24,7 @@ index 0000000..d038f34
 +
 +OUTPUT=artifacts/train-$(date +%Y%m%d-%H%M%S).log
 +mkdir -p $(dirname $OUTPUT) ; exec > >(tee -a $OUTPUT) 2>&1
-+trap 'echo "exit-time: $(date +%Y%m%d-%H%M%S)"' EXIT
++trap 'echo "exit-time: $(date +%Y%m%d-%H%M%S)" >> "$OUTPUT"' EXIT INT TERM
 +
 +rm -rf /tmp/torchtitan
 +

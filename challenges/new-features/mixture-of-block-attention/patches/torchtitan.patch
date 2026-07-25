@@ -24,7 +24,7 @@ index 0000000..6c1afa2
 +
 +OUTPUT=artifacts/train-$(date +%Y%m%d-%H%M%S).log
 +mkdir -p $(dirname $OUTPUT) ; exec > >(tee -a $OUTPUT) 2>&1
-+trap 'echo "exit-time: $(date +%Y%m%d-%H%M%S)"' EXIT
++trap 'echo "exit-time: $(date +%Y%m%d-%H%M%S)" >> "$OUTPUT"' EXIT INT TERM
 +
 +LAUNCH_ARGS=()
 +LAUNCH_ARGS+=(--nnodes=${SLURM_NNODES:-1} --node-rank=${SLURM_NODEID:-0} --nproc-per-node=gpu)
@@ -47,7 +47,7 @@ index 0000000..67fc9de
 +
 +OUTPUT=artifacts/verify-$(date +%Y%m%d-%H%M%S).log
 +mkdir -p $(dirname $OUTPUT) ; exec > >(tee -a $OUTPUT) 2>&1
-+trap 'echo "exit-time: $(date +%Y%m%d-%H%M%S)"' EXIT
++trap 'echo "exit-time: $(date +%Y%m%d-%H%M%S)" >> "$OUTPUT"' EXIT INT TERM
 +
 +LAUNCH_ARGS=()
 +LAUNCH_ARGS+=(--nnodes=${SLURM_NNODES:-1} --node-rank=${SLURM_NODEID:-0} --nproc-per-node=gpu)
