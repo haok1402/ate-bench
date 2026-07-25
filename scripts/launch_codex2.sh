@@ -38,6 +38,7 @@ run_megatron()
 
 # 3. indirection question-and-answer (PithTrain only)
 # ----------------------------------------------------------------------------
+use_indirection
 run_pith challenges/question-and-answer/attention-kernel-dispatch
 run_pith challenges/question-and-answer/configuration-propagation
 run_pith challenges/question-and-answer/context-sequence-parallelism
