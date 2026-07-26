@@ -1,23 +1,18 @@
 #!/bin/bash
 # codex + gpt-5.6-sol at high reasoning effort.
-# One pass per node; launch on all three nodes together for three independent sessions.
+# Skills ablation: report-heavy-kernels on Megatron-LM + torchtitan, now with the
+# capture-nsys-profile skill transplanted in. Snapshots land in snapshots-skills.
+# (pith-train already has the skill on the baseline branch and is the control.)
 
 set -euo pipefail
 
+export SNAPSHOTS=snapshots-skills
+
 run()
 {
-    local challenge=$1; local agent="codex"; local model="gpt-5.6-sol"
-    for framework in torchtitan pith-train Megatron-LM; do
-        python3 challenges/launch.py $framework $challenge $agent $model
-    done
+    local framework=$1
+    python3 challenges/launch.py $framework challenges/operate-and-profile/report-heavy-kernels codex gpt-5.6-sol
 }
 
-run_megatron()
-{
-    local challenge=$1; local agent="codex"; local model="gpt-5.6-sol"
-    python3 challenges/launch.py Megatron-LM $challenge $agent $model
-}
-
-# operate-and-profile
-# ----------------------------------------------------------------------------
-run_megatron challenges/operate-and-profile/getting-started
+run Megatron-LM
+run torchtitan
