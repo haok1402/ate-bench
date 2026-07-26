@@ -13,6 +13,8 @@ setup_codebase()
     git -C pith-train fetch --depth 1 origin $PITH_TRAIN_SHA
     git -C pith-train checkout FETCH_HEAD
     git -C pith-train apply $AGENTS_NEUTRAL_PATCH
+    ln -s pith-train/AGENTS.md AGENTS.md
+    ln -s pith-train/.agents .agents
 }
 
 commit_baseline()

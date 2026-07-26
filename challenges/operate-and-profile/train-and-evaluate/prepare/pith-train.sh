@@ -16,6 +16,8 @@ setup_codebase()
     git -C pith-train checkout FETCH_HEAD
     git -C pith-train apply $PITH_TRAIN_PATCH
     git -C pith-train apply $AGENTS_NEUTRAL_PATCH
+    ln -s pith-train/AGENTS.md AGENTS.md
+    ln -s pith-train/.agents .agents
 
     git init lm-evaluation-harness
     git -C lm-evaluation-harness remote add origin $LM_EVALUATION_HARNESS_URL
