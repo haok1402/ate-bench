@@ -18,8 +18,13 @@ setup_codebase()
 
 build_environment()
 {
+    # This task IS the agent's job: build the native-te environment from scratch. Prepare only
+    # needs to stage data (checkpoint hf2dcp + tokenize), which never imports TransformerEngine,
+    # so build a minimal env WITHOUT the heavy source builds (transformer-engine, flash-attn-4,
+    # deep-gemm, tilelang). discard_environment then wipes it, so nothing leaks to the agent.
     pushd pith-train
-    uv sync
+    uv venv --python 3.12
+    uv pip install "torch>=2.10.0" transformers safetensors numpy zstandard huggingface_hub wandb
     popd
 }
 
