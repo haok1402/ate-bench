@@ -1,15 +1,15 @@
 #!/bin/bash
 # codex + gpt-5.6-sol at high reasoning effort.
-# One pass per node; launch on all three nodes together for three independent sessions.
+# Skills ablation: report-heavy-kernels on Megatron-LM (with the capture-nsys-profile
+# skill transplanted in) -> snapshots-skills. Run on 3 nodes for n=3.
 
 set -euo pipefail
 
-run_pithtrain()
+export SNAPSHOTS=snapshots-skills
+
+run_megatron()
 {
-    local challenge=$1; local agent="codex"; local model="gpt-5.6-sol"
-    python3 challenges/launch.py pith-train $challenge $agent $model
+    python3 challenges/launch.py Megatron-LM $1 codex gpt-5.6-sol
 }
 
-# operate-and-profile
-# ----------------------------------------------------------------------------
-run_pithtrain challenges/operate-and-profile/report-heavy-kernels
+run_megatron challenges/operate-and-profile/report-heavy-kernels
