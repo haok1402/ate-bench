@@ -52,6 +52,7 @@ setup_workspace()
 discard_environment()
 {
     rm -rvf torchtitan/.venv torchtitan/uv.lock
+    rm -rf "$UV_CACHE_DIR"; mkdir -p "$UV_CACHE_DIR"
 }
 
 commit_baseline()
