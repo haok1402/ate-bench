@@ -6,6 +6,7 @@ source challenges/exports.sh
 
 MEGATRON_LM_PATCH=$(realpath challenges/operate-and-profile/report-heavy-kernels/patches/Megatron-LM.patch)
 MEGATRON_BRIDGE_PATCH=$(realpath challenges/operate-and-profile/report-heavy-kernels/patches/Megatron-Bridge.patch)
+AGENT_SKILLS=$(realpath challenges/agent-skills/Megatron-LM)
 
 setup_codebase()
 {
@@ -20,6 +21,13 @@ setup_codebase()
     git -C Megatron-Bridge fetch --depth 1 origin $MEGATRON_BRIDGE_SHA
     git -C Megatron-Bridge checkout FETCH_HEAD
     git -C Megatron-Bridge apply $MEGATRON_BRIDGE_PATCH
+
+    # Install the capture-nsys-profile skill and surface it at the workspace root
+    # (AGENTS.md + .agents symlinks so Codex auto-loads it from cwd).
+    cp -r "$AGENT_SKILLS/.agents" Megatron-LM/.agents
+    cp "$AGENT_SKILLS/AGENTS.md" Megatron-LM/AGENTS.md
+    ln -s Megatron-LM/AGENTS.md AGENTS.md
+    ln -s Megatron-LM/.agents .agents
 }
 
 build_environment()

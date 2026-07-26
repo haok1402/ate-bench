@@ -1,0 +1,115 @@
+diff --git a/torchtitan/tools/profiling.py b/torchtitan/tools/profiling.py
+index d9811f9..577c9bd 100644
+--- a/torchtitan/tools/profiling.py
++++ b/torchtitan/tools/profiling.py
+@@ -11,6 +11,7 @@ import time
+ from dataclasses import dataclass
+ 
+ import torch
++import torch.distributed as dist
+ from torchtitan.tools.logging import logger
+ from torchtitan.tools.utils import device_module
+ 
+@@ -18,6 +19,41 @@ from torchtitan.tools.utils import device_module
+ MEMORY_SNAPSHOT_MAX_ENTRIES = 100000
+ 
+ 
++@contextlib.contextmanager
++def maybe_enable_nsys(
++    *,
++    current_step: int,
++    profile_step: int | None,
++    sync_group: dist.ProcessGroup | None,
++):
++    """Bracket one complete training step with the CUDA profiler API.
++
++    Nsight Systems can use these calls as capture triggers. A CPU-only Gloo
++    group coordinates every rank without adding synchronization kernels to the
++    measured GPU workload.
++    """
++    if profile_step is None or current_step != profile_step:
++        yield
++        return
++
++    assert sync_group is not None
++    dist.barrier(group=sync_group)
++    torch.cuda.synchronize()
++    torch.cuda.profiler.start()
++    dist.barrier(group=sync_group)
++    torch.cuda.nvtx.range_push(f"train_step_{current_step}")
++    logger.info("Nsight Systems capture started for step %d", current_step)
++
++    try:
++        yield
++    finally:
++        torch.cuda.nvtx.range_pop()
++        torch.cuda.synchronize()
++        dist.barrier(group=sync_group)
++        torch.cuda.profiler.stop()
++        logger.info("Nsight Systems capture stopped after step %d", current_step)
++
++
+ # TODO: introduce an owner class, namely Profiler
+ @dataclass(kw_only=True, slots=True)
+ class ProfilingConfig:
+diff --git a/torchtitan/trainer.py b/torchtitan/trainer.py
+index 6137578..c42e38a 100644
+--- a/torchtitan/trainer.py
++++ b/torchtitan/trainer.py
+@@ -49,6 +49,7 @@ from torchtitan.tools import utils
+ from torchtitan.tools.logging import logger
+ from torchtitan.tools.profiling import (
+     maybe_enable_memory_snapshot,
++    maybe_enable_nsys,
+     maybe_enable_profiling,
+     ProfilingConfig,
+ )
+@@ -807,6 +808,25 @@ class Trainer(torch.distributed.checkpoint.stateful.Stateful, Configurable):
+         self.checkpointer.load(step=config.checkpoint.load_step)
+         logger.info(f"Training starts at step {self.step + 1}")
+ 
++        nsys_profile_step_env = os.environ.get("TORCHTITAN_NSYS_PROFILE_STEP")
++        nsys_profile_step = (
++            int(nsys_profile_step_env) if nsys_profile_step_env is not None else None
++        )
++        if nsys_profile_step is not None:
++            if not 1 <= nsys_profile_step <= config.training.steps:
++                raise ValueError(
++                    "TORCHTITAN_NSYS_PROFILE_STEP must identify a configured "
++                    f"training step (1-{config.training.steps})"
++                )
++            if not torch.cuda.is_available():
++                raise RuntimeError("Nsight Systems step capture requires CUDA")
++            nsys_sync_group = torch.distributed.new_group(backend="gloo")
++            logger.info(
++                "Nsight Systems CUDA capture is armed for step %d", nsys_profile_step
++            )
++        else:
++            nsys_sync_group = None
++
+         with (
+             maybe_enable_profiling(
+                 config.profiling,
+@@ -823,8 +843,21 @@ class Trainer(torch.distributed.checkpoint.stateful.Stateful, Configurable):
+             while self.should_continue_training():
+                 self.step += 1
+                 self.gc_handler.run(self.step)
++                if self.step == nsys_profile_step:
++                    # Finalizing a multi-rank nsys capture can briefly pause ranks.
++                    # Keep the post-step checkpoint from inheriting the tighter
++                    # steady-state timeout that is installed after step one.
++                    dist_utils.set_pg_timeouts(
++                        timeout=timedelta(minutes=10),
++                        parallel_dims=self.parallel_dims,
++                    )
+                 try:
+-                    self.train_step(data_iterator)
++                    with maybe_enable_nsys(
++                        current_step=self.step,
++                        profile_step=nsys_profile_step,
++                        sync_group=nsys_sync_group,
++                    ):
++                        self.train_step(data_iterator)
+                 except DataloaderExhaustedError:
+                     logger.warning("Ran out of data; last step was canceled.")
+                     break

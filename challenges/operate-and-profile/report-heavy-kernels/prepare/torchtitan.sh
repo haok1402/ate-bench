@@ -5,6 +5,7 @@ set -euo pipefail
 source challenges/exports.sh
 
 TORCHTITAN_PATCH=$(realpath challenges/operate-and-profile/report-heavy-kernels/patches/torchtitan.patch)
+AGENT_SKILLS=$(realpath challenges/agent-skills/torchtitan)
 
 setup_codebase()
 {
@@ -13,6 +14,13 @@ setup_codebase()
     git -C torchtitan fetch --depth 1 origin $TORCHTITAN_SHA
     git -C torchtitan checkout FETCH_HEAD
     git -C torchtitan apply $TORCHTITAN_PATCH
+
+    # Install the capture-nsys-profile skill and surface it at the workspace root
+    # (AGENTS.md + .agents symlinks so Codex auto-loads it from cwd).
+    cp -r "$AGENT_SKILLS/.agents" torchtitan/.agents
+    cp "$AGENT_SKILLS/AGENTS.md" torchtitan/AGENTS.md
+    ln -s torchtitan/AGENTS.md AGENTS.md
+    ln -s torchtitan/.agents .agents
 }
 
 build_environment()
