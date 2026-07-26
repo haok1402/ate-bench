@@ -5,6 +5,7 @@ set -euo pipefail
 source challenges/exports.sh
 
 PITH_TRAIN_PATCH=$(realpath challenges/operate-and-profile/collect-routing-trace/patches/pith-train.patch)
+AGENTS_NEUTRAL_PATCH=$(realpath challenges/agent-neutral.patch)
 SETUP_SCRIPT=$(realpath challenges/operate-and-profile/collect-routing-trace/prepare/setup.py)
 
 setup_codebase()
@@ -14,6 +15,7 @@ setup_codebase()
     git -C pith-train fetch --depth 1 origin $PITH_TRAIN_SHA
     git -C pith-train checkout FETCH_HEAD
     git -C pith-train apply $PITH_TRAIN_PATCH
+    git -C pith-train apply $AGENTS_NEUTRAL_PATCH
 }
 
 build_environment()

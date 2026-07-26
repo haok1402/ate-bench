@@ -1,0 +1,222 @@
+diff --git a/.claude/skills/add-memory-prints/SKILL.md b/.agents/skills/add-memory-prints/SKILL.md
+similarity index 100%
+rename from .claude/skills/add-memory-prints/SKILL.md
+rename to .agents/skills/add-memory-prints/SKILL.md
+diff --git a/.claude/skills/add-new-model/SKILL.md b/.agents/skills/add-new-model/SKILL.md
+similarity index 100%
+rename from .claude/skills/add-new-model/SKILL.md
+rename to .agents/skills/add-new-model/SKILL.md
+diff --git a/.claude/skills/add-new-model/reference/checkpoint.md b/.agents/skills/add-new-model/reference/checkpoint.md
+similarity index 100%
+rename from .claude/skills/add-new-model/reference/checkpoint.md
+rename to .agents/skills/add-new-model/reference/checkpoint.md
+diff --git a/.claude/skills/add-new-model/reference/compile.md b/.agents/skills/add-new-model/reference/compile.md
+similarity index 100%
+rename from .claude/skills/add-new-model/reference/compile.md
+rename to .agents/skills/add-new-model/reference/compile.md
+diff --git a/.claude/skills/add-new-model/reference/conventions.md b/.agents/skills/add-new-model/reference/conventions.md
+similarity index 100%
+rename from .claude/skills/add-new-model/reference/conventions.md
+rename to .agents/skills/add-new-model/reference/conventions.md
+diff --git a/.claude/skills/add-new-model/reference/pitfalls.md b/.agents/skills/add-new-model/reference/pitfalls.md
+similarity index 99%
+rename from .claude/skills/add-new-model/reference/pitfalls.md
+rename to .agents/skills/add-new-model/reference/pitfalls.md
+index c8a925d..d5db2fb 100644
+--- a/.claude/skills/add-new-model/reference/pitfalls.md
++++ b/.agents/skills/add-new-model/reference/pitfalls.md
+@@ -367,5 +367,5 @@ Instead, print magnitudes and diagnose. See
+   test suite.
+ 
+ - **Don't commit `docs/`, `CLAUDE.md`, or `.claude/`.** Per user
+-  preferences. This skill itself lives under `.claude/skills/` — it's
++  preferences. This skill itself lives under `.agents/skills/` — it's
+   not committed.
+diff --git a/.claude/skills/add-new-model/reference/protocol.md b/.agents/skills/add-new-model/reference/protocol.md
+similarity index 100%
+rename from .claude/skills/add-new-model/reference/protocol.md
+rename to .agents/skills/add-new-model/reference/protocol.md
+diff --git a/.claude/skills/add-new-model/reference/testing.md b/.agents/skills/add-new-model/reference/testing.md
+similarity index 100%
+rename from .claude/skills/add-new-model/reference/testing.md
+rename to .agents/skills/add-new-model/reference/testing.md
+diff --git a/.claude/skills/add-new-model/templates/inference_test.py b/.agents/skills/add-new-model/templates/inference_test.py
+similarity index 100%
+rename from .claude/skills/add-new-model/templates/inference_test.py
+rename to .agents/skills/add-new-model/templates/inference_test.py
+diff --git a/.claude/skills/add-new-model/templates/model_skeleton.py b/.agents/skills/add-new-model/templates/model_skeleton.py
+similarity index 100%
+rename from .claude/skills/add-new-model/templates/model_skeleton.py
+rename to .agents/skills/add-new-model/templates/model_skeleton.py
+diff --git a/.claude/skills/capture-nsys-profile/SKILL.md b/.agents/skills/capture-nsys-profile/SKILL.md
+similarity index 95%
+rename from .claude/skills/capture-nsys-profile/SKILL.md
+rename to .agents/skills/capture-nsys-profile/SKILL.md
+index d61b310..6a77f4d 100644
+--- a/.claude/skills/capture-nsys-profile/SKILL.md
++++ b/.agents/skills/capture-nsys-profile/SKILL.md
+@@ -44,13 +44,13 @@ If `$SLURM_JOB_ID` is set, use the **launch-with-slurm** skill to read the alloc
+ 
+ ```bash
+ # Single-node, minimum GPUs (DeepSeek-V2-Lite, pp=2 ep=2)
+-bash .claude/skills/capture-nsys-profile/scripts/launch_capture.sh --model deepseek-v2-lite --pipeline-parallel-size 2 --expert-parallel-size 2
++bash .agents/skills/capture-nsys-profile/scripts/launch_capture.sh --model deepseek-v2-lite --pipeline-parallel-size 2 --expert-parallel-size 2
+ 
+ # Multi-node via SLURM (Qwen3-30B-A3B, pp=2 ep=8 -> 2 nodes)
+-srun -N 2 -W 0 .claude/skills/capture-nsys-profile/scripts/launch_capture.sh --model qwen3-30b-a3b --pipeline-parallel-size 2 --expert-parallel-size 8
++srun -N 2 -W 0 .agents/skills/capture-nsys-profile/scripts/launch_capture.sh --model qwen3-30b-a3b --pipeline-parallel-size 2 --expert-parallel-size 8
+ 
+ # Custom sequence length (Qwen3-30B-A3B, pp=4 ep=8 -> 4 nodes, seq=4096)
+-srun -N 4 -W 0 .claude/skills/capture-nsys-profile/scripts/launch_capture.sh --model qwen3-30b-a3b --pipeline-parallel-size 4 --expert-parallel-size 8 --sequence-length 4096
++srun -N 4 -W 0 .agents/skills/capture-nsys-profile/scripts/launch_capture.sh --model qwen3-30b-a3b --pipeline-parallel-size 4 --expert-parallel-size 8 --sequence-length 4096
+ ```
+ 
+ ## Output
+diff --git a/.claude/skills/capture-nsys-profile/scripts/capture.py b/.agents/skills/capture-nsys-profile/scripts/capture.py
+similarity index 100%
+rename from .claude/skills/capture-nsys-profile/scripts/capture.py
+rename to .agents/skills/capture-nsys-profile/scripts/capture.py
+diff --git a/.claude/skills/capture-nsys-profile/scripts/launch_capture.sh b/.agents/skills/capture-nsys-profile/scripts/launch_capture.sh
+similarity index 94%
+rename from .claude/skills/capture-nsys-profile/scripts/launch_capture.sh
+rename to .agents/skills/capture-nsys-profile/scripts/launch_capture.sh
+index f23c7ed..21edbf3 100755
+--- a/.claude/skills/capture-nsys-profile/scripts/launch_capture.sh
++++ b/.agents/skills/capture-nsys-profile/scripts/launch_capture.sh
+@@ -6,7 +6,7 @@ export OMP_NUM_THREADS=8
+ export PYTHONUNBUFFERED=1
+ 
+ OUTDIR=workspace/capture-nsys-profile; mkdir -p $OUTDIR
+-SCRIPT=.claude/skills/capture-nsys-profile/scripts/capture.py
++SCRIPT=.agents/skills/capture-nsys-profile/scripts/capture.py
+ 
+ SLURM_NNODES=${SLURM_NNODES:-1}
+ SLURM_NODEID=${SLURM_NODEID:-0}
+diff --git a/.claude/skills/estimate-memory/SKILL.md b/.agents/skills/estimate-memory/SKILL.md
+similarity index 100%
+rename from .claude/skills/estimate-memory/SKILL.md
+rename to .agents/skills/estimate-memory/SKILL.md
+diff --git a/.claude/skills/launch-with-slurm/SKILL.md b/.agents/skills/launch-with-slurm/SKILL.md
+similarity index 100%
+rename from .claude/skills/launch-with-slurm/SKILL.md
+rename to .agents/skills/launch-with-slurm/SKILL.md
+diff --git a/.claude/skills/setup-benchmark-inputs/SKILL.md b/.agents/skills/setup-benchmark-inputs/SKILL.md
+similarity index 91%
+rename from .claude/skills/setup-benchmark-inputs/SKILL.md
+rename to .agents/skills/setup-benchmark-inputs/SKILL.md
+index acc45b6..155e650 100644
+--- a/.claude/skills/setup-benchmark-inputs/SKILL.md
++++ b/.agents/skills/setup-benchmark-inputs/SKILL.md
+@@ -17,8 +17,8 @@ Setup the minimal artifacts needed to benchmark, profile, or regression-test a M
+ mkdir -p workspace/loggings
+ 
+ # Single-node (DeepSeek-V2-Lite)
+-bash .claude/skills/setup-benchmark-inputs/scripts/launch_setup.sh --model deepseek-v2-lite 2>&1 | tee workspace/loggings/setup-deepseek-v2-lite.log
++bash .agents/skills/setup-benchmark-inputs/scripts/launch_setup.sh --model deepseek-v2-lite 2>&1 | tee workspace/loggings/setup-deepseek-v2-lite.log
+ 
+ # Multi-node via SLURM (Qwen3-30B-A3B)
+-srun -W 0 -o workspace/loggings/setup-qwen3-30b-a3b.log .claude/skills/setup-benchmark-inputs/scripts/launch_setup.sh --model qwen3-30b-a3b
++srun -W 0 -o workspace/loggings/setup-qwen3-30b-a3b.log .agents/skills/setup-benchmark-inputs/scripts/launch_setup.sh --model qwen3-30b-a3b
+ ```
+diff --git a/.claude/skills/setup-benchmark-inputs/scripts/launch_setup.sh b/.agents/skills/setup-benchmark-inputs/scripts/launch_setup.sh
+similarity index 68%
+rename from .claude/skills/setup-benchmark-inputs/scripts/launch_setup.sh
+rename to .agents/skills/setup-benchmark-inputs/scripts/launch_setup.sh
+index d774355..3a11b52 100755
+--- a/.claude/skills/setup-benchmark-inputs/scripts/launch_setup.sh
++++ b/.agents/skills/setup-benchmark-inputs/scripts/launch_setup.sh
+@@ -4,4 +4,4 @@
+ set -euo pipefail
+ export PYTHONUNBUFFERED=1
+ 
+-python3 .claude/skills/setup-benchmark-inputs/scripts/setup.py $@
++python3 .agents/skills/setup-benchmark-inputs/scripts/setup.py $@
+diff --git a/.claude/skills/setup-benchmark-inputs/scripts/setup.py b/.agents/skills/setup-benchmark-inputs/scripts/setup.py
+similarity index 100%
+rename from .claude/skills/setup-benchmark-inputs/scripts/setup.py
+rename to .agents/skills/setup-benchmark-inputs/scripts/setup.py
+diff --git a/.claude/skills/validate-correctness/SKILL.md b/.agents/skills/validate-correctness/SKILL.md
+similarity index 93%
+rename from .claude/skills/validate-correctness/SKILL.md
+rename to .agents/skills/validate-correctness/SKILL.md
+index e4ad39f..32c40cc 100644
+--- a/.claude/skills/validate-correctness/SKILL.md
++++ b/.agents/skills/validate-correctness/SKILL.md
+@@ -34,8 +34,8 @@ mkdir -p $REPOROOT/workspace/loggings
+ Under SLURM, wrap with `srun` (see **launch-with-slurm**). Log paths must differ — `workspace/` is shared between the two runs.
+ 
+ ```bash
+-cd $WORKTREE && srun -N <nodes> -W 0 -o workspace/loggings/validate-<model>-base.log .claude/skills/validate-correctness/scripts/launch_validate.sh --model <model> --pipeline-parallel-size <PP> --expert-parallel-size <EP>
+-cd $REPOROOT && srun -N <nodes> -W 0 -o workspace/loggings/validate-<model>-feat.log .claude/skills/validate-correctness/scripts/launch_validate.sh --model <model> --pipeline-parallel-size <PP> --expert-parallel-size <EP>
++cd $WORKTREE && srun -N <nodes> -W 0 -o workspace/loggings/validate-<model>-base.log .agents/skills/validate-correctness/scripts/launch_validate.sh --model <model> --pipeline-parallel-size <PP> --expert-parallel-size <EP>
++cd $REPOROOT && srun -N <nodes> -W 0 -o workspace/loggings/validate-<model>-feat.log .agents/skills/validate-correctness/scripts/launch_validate.sh --model <model> --pipeline-parallel-size <PP> --expert-parallel-size <EP>
+ ```
+ 
+ Optional flags: `--context-parallel-size` (default 1), `--sequence-length` (default 2048), `--max-steps` (default 25). Global batch size is fixed at 1024.
+@@ -43,7 +43,7 @@ Optional flags: `--context-parallel-size` (default 1), `--sequence-length` (defa
+ ## Step 3: Compare
+ 
+ ```bash
+-python3 .claude/skills/validate-correctness/scripts/compare.py workspace/loggings/validate-<model>-base.log workspace/loggings/validate-<model>-feat.log
++python3 .agents/skills/validate-correctness/scripts/compare.py workspace/loggings/validate-<model>-base.log workspace/loggings/validate-<model>-feat.log
+ ```
+ 
+ Tune `--tolerance` (default `5e-3`) if FP8/flash-attention non-determinism causes spurious misses. Exit 0 = correctness PASS, 1 = FAIL.
+diff --git a/.claude/skills/validate-correctness/scripts/compare.py b/.agents/skills/validate-correctness/scripts/compare.py
+similarity index 100%
+rename from .claude/skills/validate-correctness/scripts/compare.py
+rename to .agents/skills/validate-correctness/scripts/compare.py
+diff --git a/.claude/skills/validate-correctness/scripts/launch_validate.sh b/.agents/skills/validate-correctness/scripts/launch_validate.sh
+similarity index 91%
+rename from .claude/skills/validate-correctness/scripts/launch_validate.sh
+rename to .agents/skills/validate-correctness/scripts/launch_validate.sh
+index fa8a119..b8dc5b4 100755
+--- a/.claude/skills/validate-correctness/scripts/launch_validate.sh
++++ b/.agents/skills/validate-correctness/scripts/launch_validate.sh
+@@ -5,7 +5,7 @@ set -euo pipefail
+ export OMP_NUM_THREADS=8
+ export PYTHONUNBUFFERED=1
+ 
+-SCRIPT=.claude/skills/validate-correctness/scripts/validate.py
++SCRIPT=.agents/skills/validate-correctness/scripts/validate.py
+ 
+ SLURM_NNODES=${SLURM_NNODES:-1}
+ SLURM_NODEID=${SLURM_NODEID:-0}
+diff --git a/.claude/skills/validate-correctness/scripts/validate.py b/.agents/skills/validate-correctness/scripts/validate.py
+similarity index 100%
+rename from .claude/skills/validate-correctness/scripts/validate.py
+rename to .agents/skills/validate-correctness/scripts/validate.py
+diff --git a/.claude/skills b/.claude/skills
+new file mode 120000
+index 0000000..2b7a412
+--- /dev/null
++++ b/.claude/skills
+@@ -0,0 +1 @@
++../.agents/skills
+\ No newline at end of file
+diff --git a/AGENTS.md b/AGENTS.md
+new file mode 100644
+index 0000000..9c3e5ba
+--- /dev/null
++++ b/AGENTS.md
+@@ -0,0 +1,11 @@
++# AGENTS.md
++
++## Agent Skills
++
++This repository ships agent-native workflows under `.agents/skills/`, loaded automatically. Invoke a skill whenever a request matches one instead of re-deriving the workflow from scratch.
++
++Skills are living documents, and you should keep them sharp as you work. When you notice any of the following, surface it for review rather than editing silently or derailing the task in progress:
++
++- **Fix** a skill you followed that was stale, wrong, or incomplete.
++- **Refine** a skill that worked but whose guidance could be sharper.
++- **Propose** a new skill when you did repeatable, skill-worthy work that none covered.
+diff --git a/CLAUDE.md b/CLAUDE.md
+new file mode 100644
+index 0000000..f6aa6c0
+--- /dev/null
++++ b/CLAUDE.md
+@@ -0,0 +1,3 @@
++# CLAUDE.md
++
++@AGENTS.md
