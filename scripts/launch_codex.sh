@@ -12,9 +12,12 @@ run()
     done
 }
 
+run_megatron()
+{
+    local challenge=$1; local agent="codex"; local model="gpt-5.6-sol"
+    python3 challenges/launch.py Megatron-LM $challenge $agent $model
+}
+
 # operate-and-profile
 # ----------------------------------------------------------------------------
-run challenges/operate-and-profile/collect-routing-trace
-run challenges/operate-and-profile/getting-started
-run challenges/operate-and-profile/report-heavy-kernels
-run challenges/operate-and-profile/train-and-evaluate
+run_megatron challenges/operate-and-profile/getting-started
