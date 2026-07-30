@@ -129,3 +129,53 @@ def effort_table(
             row.extend(cell(item_key, fw, mk, win_by_metric[mk]) for mk in m_keys)
             rows.append(row)
     return markdown_table(headers, rows, aligns)
+
+
+def ordinal(n):
+    """Ordinal label for a 1-based index: 1 -> '1st', 2 -> '2nd', 3 -> '3rd', 11 -> '11th'."""
+    if 10 <= n % 100 <= 20:
+        suffix = "th"
+    else:
+        suffix = {1: "st", 2: "nd", 3: "rd"}.get(n % 10, "th")
+    return f"{n}{suffix}"
+
+
+def attempt_records_table(
+    items,
+    frameworks,
+    metrics,
+    attempts_of,
+    format_cell,
+    item_header="Task",
+):
+    """
+    Render a per-attempt records table (paper appendix Table 11 style): one row per
+    (item, framework, attempt) carrying the raw per-attempt value rather than a median.
+    Leading cells are blanked as they repeat down each item and framework block.
+
+    items      : list[(item_key, item_label)]      row-block order
+    frameworks : list[(fw_key, fw_label)]          framework order within a block
+    metrics    : list[(metric_key, metric_label)]  metric column order
+    attempts_of(item_key, fw_key) -> list[dict metric_key -> value]   (attempt order)
+    format_cell(metric_key, value) -> str          formats one raw value
+    """
+    m_keys = [k for k, _ in metrics]
+    m_labels = [l for _, l in metrics]
+    headers = [item_header, "Framework", "Attempt", SEP] + m_labels
+    aligns = ["l", "r", "r", "c"] + ["r"] * len(m_keys)
+    rows = []
+    for item_key, item_label in items:
+        item_shown = False
+        for fw_key, fw_label in frameworks:
+            attempts = attempts_of(item_key, fw_key)
+            for index, attempt in enumerate(attempts):
+                row = [
+                    "" if item_shown else item_label,
+                    fw_label if index == 0 else "",
+                    ordinal(index + 1),
+                    SEP,
+                ]
+                row.extend(format_cell(mk, attempt[mk]) for mk in m_keys)
+                rows.append(row)
+                item_shown = True
+    return markdown_table(headers, rows, aligns)
