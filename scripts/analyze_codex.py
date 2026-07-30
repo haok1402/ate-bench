@@ -50,10 +50,7 @@ import statistics
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-try:
-    from utilities import effort_table, format_k
-except ImportError:
-    from scripts.utilities import effort_table, format_k
+from utilities import attempt_records_table, effort_table, format_k
 
 FRAMEWORKS = [
     ("Megatron-LM", "Megatron-LM"),
@@ -324,6 +321,33 @@ def titleize(name):
     return name.replace("-", " ").title()
 
 
+def category_layout(category, present):
+    """
+    Shared per-category table layout: metric columns, item ordering, header label, and
+    whether the category renders horizontally (Q&A) or vertically. `present` is the set
+    of challenge names seen for the category. Returns (metrics, items, item_header, horizontal).
+    """
+    horizontal = category == QA
+    fields = QA_FIELDS if horizontal else OP_FIELDS
+    metrics = [(f, METRICS[f][0]) for f in fields]
+    if horizontal:
+        challenges = [ch for ch in QA_QUESTION_ORDER if ch in present]
+        challenges += sorted(present - set(QA_QUESTION_ORDER))
+        items = [
+            (
+                ch,
+                f"Q{QA_QUESTION_ORDER.index(ch) + 1}"
+                if ch in QA_QUESTION_ORDER
+                else titleize(ch),
+            )
+            for ch in challenges
+        ]
+        return metrics, items, "#", horizontal
+    challenges = sorted(present)
+    items = [(ch, titleize(ch)) for ch in challenges]
+    return metrics, items, "Task", horizontal
+
+
 def main():
     """Discover codex runs, build the per-category tables, and write the markdown report."""
     parser = argparse.ArgumentParser(
@@ -356,7 +380,7 @@ def main():
             return None
         return statistics.median(a[field] for a in attempts)
 
-    blocks = ["# ATE-Bench with Codex"]
+    blocks = ["# Aggregate Records"]
 
     categories = {cat for cat, _, _ in groups}
     ordered = [c for c in CATEGORY_ORDER if c in categories] + sorted(
@@ -365,27 +389,7 @@ def main():
 
     for category in ordered:
         present = {ch for cat, ch, _ in groups if cat == category}
-        horizontal = category == QA
-        fields = QA_FIELDS if horizontal else OP_FIELDS
-        metrics = [(f, METRICS[f][0]) for f in fields]
-
-        if horizontal:
-            challenges = [ch for ch in QA_QUESTION_ORDER if ch in present]
-            challenges += sorted(present - set(QA_QUESTION_ORDER))
-            items = [
-                (
-                    ch,
-                    f"Q{QA_QUESTION_ORDER.index(ch) + 1}"
-                    if ch in QA_QUESTION_ORDER
-                    else titleize(ch),
-                )
-                for ch in challenges
-            ]
-            item_header = "#"
-        else:
-            challenges = sorted(present)
-            items = [(ch, titleize(ch)) for ch in challenges]
-            item_header = "Task"
+        metrics, items, item_header, horizontal = category_layout(category, present)
 
         def raw_of(item_key, fw_key, metric_key, _cat=category):
             """Median value for one cell, or None if that framework has no attempts."""
@@ -407,12 +411,34 @@ def main():
         name_of = dict(items)
         partial = [
             f"{name_of[ch]}/{label} (n={len(groups.get((category, ch, key), []))})"
-            for ch in challenges
+            for ch, _ in items
             for key, label in FRAMEWORKS
             if len(groups.get((category, ch, key), [])) != 3
         ]
         if partial:
             blocks.append(f"_Attempts not equal to 3: {', '.join(partial)}._")
+
+    blocks.append("# Per-Attempt Records")
+
+    for category in ordered:
+        present = {ch for cat, ch, _ in groups if cat == category}
+        metrics, items, item_header, _ = category_layout(category, present)
+
+        def attempts_of(item_key, fw_key, _cat=category):
+            """Per-attempt metric dicts for one item x framework, in discovery order."""
+            return groups.get((_cat, item_key, fw_key), [])
+
+        blocks.append(f"## {CATEGORY_TITLE.get(category, titleize(category))}")
+        blocks.append(
+            attempt_records_table(
+                items,
+                FRAMEWORKS,
+                metrics,
+                attempts_of,
+                format_cell,
+                item_header=item_header,
+            )
+        )
 
     report = "\n\n".join(blocks) + "\n"
     output = Path(args.snapshot, "results", "codex.md")
