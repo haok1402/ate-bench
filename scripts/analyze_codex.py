@@ -305,6 +305,20 @@ QA_QUESTION_ORDER.append("fsdp-ddp-wrapping")
 QA_QUESTION_ORDER.append("global-gradient-clipping")
 QA_QUESTION_ORDER.append("distributed-checkpoint-serialization")
 
+CATEGORY_TASK_ORDER = {}
+CATEGORY_TASK_ORDER["operate-and-profile"] = [
+    "getting-started",
+    "train-and-evaluate",
+    "collect-routing-trace",
+    "report-heavy-kernels",
+]
+CATEGORY_TASK_ORDER["new-features"] = [
+    "differential-transformer",
+    "dynamic-mixture-of-experts",
+    "mixture-of-block-attention",
+    "moe-plus-plus",
+]
+
 
 def format_cell(field, value):
     """Format a metric value per its field kind: minutes, integer, or K-suffixed."""
@@ -343,7 +357,9 @@ def category_layout(category, present):
             for ch in challenges
         ]
         return metrics, items, "#", horizontal
-    challenges = sorted(present)
+    order = CATEGORY_TASK_ORDER.get(category, [])
+    challenges = [ch for ch in order if ch in present]
+    challenges += sorted(present - set(order))
     items = [(ch, titleize(ch)) for ch in challenges]
     return metrics, items, "Task", horizontal
 
