@@ -1,8 +1,5 @@
 #!/bin/bash
-# native-te ablation smoke test: PithTrain routed through NVIDIA TransformerEngine.
-# One task only — operate-and-profile/getting-started (the agent builds the native-te
-# environment from scratch, guided by the fork's updated README). PithTrain framework only.
-# Snapshots land in snapshots-native to keep this isolated from baseline/indirection.
+# native-te ablation: PithTrain routed through NVIDIA TransformerEngine.
 
 set -euo pipefail
 
@@ -19,4 +16,6 @@ run_pith()
 }
 
 use_native
-run_pith challenges/operate-and-profile/getting-started
+run_pith challenges/new-features/moe-plus-plus
+run_pith challenges/new-features/mixture-of-block-attention
+run_pith challenges/new-features/differential-transformer
