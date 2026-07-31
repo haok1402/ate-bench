@@ -35,6 +35,9 @@ in its filename to the last 'exit-time:' line inside it. Logs missing that marke
 skipped, so a single absent exit-time stays small in impact. The Q&A suite is read-only
 and produces no such logs. Session Duration and Active GPU Time are reported in minutes.
 
+Column sets follow the paper: the Q&A median table omits Session Duration (Table 5), while
+the Q&A per-attempt tables carry it and spell out the question titles (Tables 9 and 10).
+
 A codex `token_count` event carries `input_tokens` that already includes the
 cached prefix (`cached_input_tokens` is a subset), so it is the direct analog of
 the Claude backend's `input + cache_read + cache_creation` per-turn context.
@@ -281,6 +284,7 @@ METRICS = {
 }
 
 QA_FIELDS = ["agent_turns", "per_turn_context", "output_tokens"]
+QA_ATTEMPT_FIELDS = ["duration_min", "agent_turns", "per_turn_context", "output_tokens"]
 OP_FIELDS = ["duration_min", "active_gpu_min", "agent_turns", "per_turn_context", "output_tokens"]
 
 QA = "question-and-answer"
@@ -291,19 +295,21 @@ CATEGORY_TITLE = {
     "new-features": "New Features",
 }
 
-QA_QUESTION_ORDER = []
-QA_QUESTION_ORDER.append("process-groups-device-mesh")
-QA_QUESTION_ORDER.append("configuration-propagation")
-QA_QUESTION_ORDER.append("data-loading-sharding")
-QA_QUESTION_ORDER.append("distributed-seed-management")
-QA_QUESTION_ORDER.append("attention-kernel-dispatch")
-QA_QUESTION_ORDER.append("rope-implementation")
-QA_QUESTION_ORDER.append("swiglu-mlp-block")
-QA_QUESTION_ORDER.append("normalization-placement")
-QA_QUESTION_ORDER.append("context-sequence-parallelism")
-QA_QUESTION_ORDER.append("fsdp-ddp-wrapping")
-QA_QUESTION_ORDER.append("global-gradient-clipping")
-QA_QUESTION_ORDER.append("distributed-checkpoint-serialization")
+QA_QUESTION_TITLES = {}
+QA_QUESTION_TITLES["process-groups-device-mesh"] = "Process Groups / Device Mesh"
+QA_QUESTION_TITLES["configuration-propagation"] = "Configuration Propagation"
+QA_QUESTION_TITLES["data-loading-sharding"] = "Data Loading & Sharding"
+QA_QUESTION_TITLES["distributed-seed-management"] = "Distributed Seed Management"
+QA_QUESTION_TITLES["attention-kernel-dispatch"] = "Attention Kernel Dispatch"
+QA_QUESTION_TITLES["rope-implementation"] = "RoPE Implementation"
+QA_QUESTION_TITLES["swiglu-mlp-block"] = "SwiGLU / MLP Block"
+QA_QUESTION_TITLES["normalization-placement"] = "Normalization Placement"
+QA_QUESTION_TITLES["context-sequence-parallelism"] = "Context / Sequence Parallelism"
+QA_QUESTION_TITLES["fsdp-ddp-wrapping"] = "FSDP / DDP Wrapping"
+QA_QUESTION_TITLES["global-gradient-clipping"] = "Global Gradient Clipping"
+QA_QUESTION_TITLES["distributed-checkpoint-serialization"] = "Distributed Checkpoint Serialization"
+
+QA_QUESTION_ORDER = list(QA_QUESTION_TITLES)
 
 CATEGORY_TASK_ORDER = {}
 CATEGORY_TASK_ORDER["operate-and-profile"] = [
@@ -335,28 +341,37 @@ def titleize(name):
     return name.replace("-", " ").title()
 
 
-def category_layout(category, present):
+def question_label(challenge, with_title):
+    """
+    Label for one Q&A challenge: 'Q5' for the median table (paper Table 5), or
+    'Q5: Attention Kernel Dispatch' for the per-attempt tables (paper Tables 9 and 10).
+    A challenge missing from QA_QUESTION_TITLES falls back to its title-cased name.
+    """
+    if challenge not in QA_QUESTION_ORDER:
+        return titleize(challenge)
+    number = f"Q{QA_QUESTION_ORDER.index(challenge) + 1}"
+    return f"{number}: {QA_QUESTION_TITLES[challenge]}" if with_title else number
+
+
+def category_layout(category, present, per_attempt=False):
     """
     Shared per-category table layout: metric columns, item ordering, header label, and
     whether the category renders horizontally (Q&A) or vertically. `present` is the set
-    of challenge names seen for the category. Returns (metrics, items, item_header, horizontal).
+    of challenge names seen for the category. `per_attempt` selects the appendix layout,
+    which for Q&A carries Session Duration and spells out the question titles, matching
+    the paper's Tables 9 and 10. Returns (metrics, items, item_header, horizontal).
     """
     horizontal = category == QA
-    fields = QA_FIELDS if horizontal else OP_FIELDS
+    if horizontal:
+        fields = QA_ATTEMPT_FIELDS if per_attempt else QA_FIELDS
+    else:
+        fields = OP_FIELDS
     metrics = [(f, METRICS[f][0]) for f in fields]
     if horizontal:
         challenges = [ch for ch in QA_QUESTION_ORDER if ch in present]
         challenges += sorted(present - set(QA_QUESTION_ORDER))
-        items = [
-            (
-                ch,
-                f"Q{QA_QUESTION_ORDER.index(ch) + 1}"
-                if ch in QA_QUESTION_ORDER
-                else titleize(ch),
-            )
-            for ch in challenges
-        ]
-        return metrics, items, "#", horizontal
+        items = [(ch, question_label(ch, per_attempt)) for ch in challenges]
+        return metrics, items, "Task" if per_attempt else "#", horizontal
     order = CATEGORY_TASK_ORDER.get(category, [])
     challenges = [ch for ch in order if ch in present]
     challenges += sorted(present - set(order))
@@ -438,7 +453,7 @@ def main():
 
     for category in ordered:
         present = {ch for cat, ch, _ in groups if cat == category}
-        metrics, items, item_header, _ = category_layout(category, present)
+        metrics, items, item_header, _ = category_layout(category, present, per_attempt=True)
 
         def attempts_of(item_key, fw_key, _cat=category):
             """Per-attempt metric dicts for one item x framework, in discovery order."""
