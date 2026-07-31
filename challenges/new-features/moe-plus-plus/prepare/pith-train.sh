@@ -22,6 +22,9 @@ build_environment()
     # host-compile path; stage them and expose via CPATH. Pin Python to 3.12 (TE predates 3.14).
     uv pip install --target .te-build-headers nvidia-nccl-cu13 nvidia-cudnn-cu13
     export CPATH="$PWD/.te-build-headers/nvidia/nccl/include:$PWD/.te-build-headers/nvidia/cudnn/include${CPATH:+:$CPATH}"
+    # TE's build_ext defaults to a single compile job, which serializes hundreds of CUDA
+    # translation units across two arches. Cap at 64 to stay well inside host memory.
+    export MAX_JOBS="${MAX_JOBS:-64}"
     # A prior TE build leaves a stale in-source CMakeCache in the shared uv checkout
     # (it points at a deleted ephemeral build env, so CMake aborts); wipe it so CMake
     # reconfigures cleanly. The built wheel stays cached, so this only bites on a miss.

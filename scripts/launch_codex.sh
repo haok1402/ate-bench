@@ -6,7 +6,7 @@ set -euo pipefail
 use_native()
 {
     export PITH_TRAIN_URL=https://github.com/MasterJH5574/Pith-Train
-    export PITH_TRAIN_SHA=82ae3e9d7a16223fa05d13c90fba304ebbae9a63
+    export PITH_TRAIN_SHA=a2b0f84c7bef532a767783faf141ece8a83d4694
     export SNAPSHOTS=snapshots-native
 }
 
